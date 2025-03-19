@@ -1,4 +1,5 @@
 import requests
+import hashlib
 from typing import List, Generic, TypeVar, Union
 from dataclasses import dataclass
 from datetime import datetime
@@ -131,6 +132,13 @@ class Error(Generic[E]):
 
 Result = Union[Ok[T], Error[E]]
 
+def calculate_hash(file_path: str) -> str:
+    hash_func = hashlib.new("sha1") 
+    with open(file_path, "rb") as file:
+        for chunk in iter(lambda: file.read(4096), b""):  
+            hash_func.update(chunk)
+    return hash_func.hexdigest()
+
 def download_file(firmwares: List[Firmwares]) -> Result[None, str]:
     for firmware in firmwares:
         file_name = f"{firmware.identifier.replace(',', '_')}-{firmware.version.replace('.', '_')}.ipsw"
@@ -153,6 +161,12 @@ def download_file(firmwares: List[Firmwares]) -> Result[None, str]:
         except requests.exceptions.RequestException as e:
             file_path.unlink(missing_ok=True)  # remove partially downloaded file on error
             return Error(f"Network error: {e}")
+
+        file_hash = calculate_hash(str(file_path)).strip()
+        hash_match = file_hash == firmware.sha1sum.strip()
+
+        if not hash_match:
+            return Error(f"Hash does not match, expected: {firmware.sha1sum}\n\ngot: {file_hash}")
 
     return Ok(None)
 
