@@ -2,16 +2,20 @@ import json
 import aiohttp
 import asyncio
 import hashlib
-from typing import  Callable, Dict, List, Generic, Optional,  TypeVar, Union
+import logging
+from typing import Any, Callable, Dict, List, Generic, Optional, TypeVar, Union
 from dataclasses import dataclass
-from datetime import datetime
-from pprint import pprint
+from datetime import UTC, datetime
 from pathlib import Path
 from tqdm.asyncio import tqdm
 import zipfile
+import tarfile
 import subprocess
 import glob
 import shutil
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 IPHONES_PRODUCT_CODES: List[str] = [
     "7,1", "7,2", "8,1", "8,2", "8,4", "9,1", "9,2", "9,3", "9,4",
@@ -103,7 +107,7 @@ async def download_file(firmware: Firmwares, version_folder: Path,  session: aio
         if (await calculate_hash(file_path)) == firmware.sha1sum:
             return Ok(file_path)
 
-        print("Detected a corrupted file, redownloading")
+        logger.info("Detected a corrupted file, redownloading")
         file_path.unlink()
 
     try:
@@ -135,6 +139,7 @@ async def put_metadata(metadata_path: Path, key: str, callback: Callable[[Option
     try:
         metadata = json.loads(metadata_path.read_text() or "{}")
         metadata[key] = callback(metadata.get(key))
+        metadata["updated_at"] = datetime.now(UTC).isoformat()
         metadata_path.write_text(json.dumps(metadata, indent=4))
     except json.JSONDecodeError as e:
         return Error(f"Invalid JSON: {e}")
@@ -145,8 +150,11 @@ async def extract_the_biggest_dmg(file: Path, output: Path) -> Result[None, str]
         biggest_dmg = max(zip_file.infolist(), key=lambda x: x.file_size)
         biggest_dmg_file_path = Path(biggest_dmg.filename).resolve()
     
-        if not biggest_dmg_file_path.exists() or biggest_dmg_file_path.stat().st_size == biggest_dmg.file_size:
+        if not biggest_dmg_file_path.exists() or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size:
+            logger.info(f"extracting {biggest_dmg.filename}")
             zip_file.extract(biggest_dmg)
+        else:
+            logger.info("skiping dmg extraction")
 
         command = [
             '7z', 'x', biggest_dmg_file_path,
@@ -157,13 +165,13 @@ async def extract_the_biggest_dmg(file: Path, output: Path) -> Result[None, str]
             f'System/Library/Carrier Bundles/*' # where all the bundles are
         ]
 
-        result = subprocess.run(command, stdout=subprocess.PIPE)
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         if result.stderr:
             return Error(f"Couldn't extract {file}, error: {result.stderr}")
 
-        biggest_dmg_file_path.unlink()
-        file.unlink()
+        biggest_dmg_file_path.unlink(missing_ok=True)
+        file.unlink(missing_ok=True)
 
         return Ok(None)
 
@@ -178,19 +186,23 @@ async def delete_non_bundles(base_path: Path, bundles: List[Path]) -> Result[Lis
     shutil.rmtree(base_path / "System", ignore_errors=True)
     return Ok([base_path / bundle.name for bundle in bundles])
 
-async def zip_and_hash_bundles(bundles: List[Path]) -> Result[List[Dict[str, str]], str]:
-    output_bundles: List[Dict[str, str]] = []
+async def tar_and_hash_bundles(bundles: List[Path]) -> Result[List[Dict[str, str]], str]:
+    output_bundles: List[Dict[str, Any]] = []
 
     for bundle in bundles:
-        bundle_zip = str(bundle).removesuffix(".bundle") + ".zip"
+        bundle_tar = bundle.with_suffix(".tar")
 
-        with zipfile.ZipFile(bundle_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in bundle.walk():
-                for file in files:
-                    file_path = root / file
+        with tarfile.open(bundle_tar, "w", format=tarfile.PAX_FORMAT) as tar:
+            tar.add(bundle, arcname=bundle.name, recursive=True)
 
-                    zipf.write(file_path, file_path.relative_to(bundle))  
-        output_bundles.append({bundle_zip: await calculate_hash(Path(bundle_zip))})
+        hash_value = await calculate_hash(bundle_tar)
+        output_bundles.append({
+            "bundle_name": bundle_tar.stem,
+            "tar_file": bundle_tar.name,
+            "sha1": hash_value,
+            "file_size": bundle_tar.stat().st_size,
+            "created_at": datetime.now(UTC).isoformat()
+        })
 
 
     return Ok(output_bundles)
@@ -199,6 +211,8 @@ async def zip_and_hash_bundles(bundles: List[Path]) -> Result[List[Dict[str, str
 async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaphore: asyncio.Semaphore) -> Result[None, str]:
     for firmware in response.firmwares:
         async with semaphore:
+            start_time = datetime.now(UTC)
+
             base_path = Path(firmware.identifier)
             base_path.mkdir(exist_ok=True)
 
@@ -228,24 +242,30 @@ async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaph
             if isinstance(new_bundles_folders, Error):
                 return new_bundles_folders
 
-            zipped_with_hash_bundles = await zip_and_hash_bundles(new_bundles_folders.value)
+            tarred_with_hash_bundles = await tar_and_hash_bundles(new_bundles_folders.value)
 
             for path in new_bundles_folders.value:
                 shutil.rmtree(path)
 
-            if isinstance(zipped_with_hash_bundles, Error):
-                return zipped_with_hash_bundles
+            if isinstance(tarred_with_hash_bundles, Error):
+                return tarred_with_hash_bundles
 
             bundles_metadata_path = version_path / "bundles.json"
             bundles_metadata_path.touch(exist_ok=True)
 
-            for file in zipped_with_hash_bundles.value:
-                for (bundle, bundle_hash) in file.items():
-                    bundle = Path(bundle).name.removesuffix(".zip")
+            zipped_bundles_value = tarred_with_hash_bundles.value
 
-                    await put_metadata(bundles_metadata_path, "bundles", lambda acc: {**(acc or {}), bundle: bundle_hash})
+            await put_metadata(bundles_metadata_path, "bundles", lambda acc: (acc or []) + zipped_bundles_value)
 
-            await put_metadata(json_metadata_path, "fw", lambda acc: (acc or []) + [firmware.version])
+            elapsed = (datetime.now(UTC) - start_time).total_seconds()
+            await put_metadata(json_metadata_path, "fw", lambda acc: (acc or []) + [{
+                "version": firmware.version,
+                "buildid": firmware.buildid,
+                "downloaded_at": datetime.now(UTC).isoformat(),
+                "processing_time_sec": elapsed,
+                "sha1": firmware.sha1sum,
+                "status": "processed"
+            }])
 
     return Ok(None)
 
@@ -253,6 +273,8 @@ async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaph
 
 async def fetch_and_bake(session: aiohttp.ClientSession, iphone_code: str, semaphore: asyncio.Semaphore):
     model = f"iPhone{iphone_code}"
+    logger.info(f"starting {model}")
+
     response = await session.get(f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"})
 
     if response.status == 200:
@@ -260,10 +282,9 @@ async def fetch_and_bake(session: aiohttp.ClientSession, iphone_code: str, semap
         bake_result = await bake_ipcc(parsed_data, session, semaphore)
 
         if isinstance(bake_result, Error):
-            pprint(f"Error: {bake_result.error}")
+            logger.error(f"Error: {bake_result.error}")
     else:
-        print(f"something went wrong while baking iPhone{iphone_code}")
-        print(f"error: {await response.text()}")
+        logger.error(f"Failed to fetch data for {model}: {await response.text()}")
 
 async def main():
     semaphore = asyncio.Semaphore(5) 
