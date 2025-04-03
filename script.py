@@ -145,35 +145,109 @@ async def put_metadata(metadata_path: Path, key: str, callback: Callable[[Option
         return Error(f"Invalid JSON: {e}")
     return Ok(None)
 
+async def decrypt_dmg_aea(ipsw_file: Path, dmg_file: Path, output: Path) -> Result[None, str]:
+    logger.info(f"decrypting {dmg_file}")
+
+    if shutil.which("ipsw") is None:
+        logger.warning("ipsw is not installed")
+        deb_path = Path("ipsw.deb")
+        
+        if not deb_path.exists():
+            subprocess.run(
+                [
+                    "wget",
+                    "https://github.com/blacktop/ipsw/releases/download/v3.1.544/ipsw_3.1.544_linux_x86_64.deb",
+                    "--output-document",
+                    str(deb_path),
+                ],
+                check=True
+            )
+        
+        subprocess.run(["dpkg", "-i", str(deb_path)], check=True)
+    
+    try:
+        subprocess.run(
+            ["ipsw", "extract", "--fcs-key", str(ipsw_file), "--output", str(output)],
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        return Error(f"Extraction failed: {e.stderr}")
+    
+
+    pem_files = [Path(p) for p in glob.glob(f"{output}/**/*.pem")]
+
+    matching_pem = next(
+        (pem for pem in pem_files if pem.stem == dmg_file.name),
+        None
+    )
+     
+    if matching_pem:
+        logger.info(f"Found a matching PEM file: {matching_pem}")
+        pem_file = matching_pem
+    else:
+        if pem_files:
+            logger.warning("No matched PEM, using the first one")
+            pem_file = pem_files[0]
+        else:
+            return Error("No PEM file found.")
+    
+    try:
+        subprocess.run(
+            ["ipsw", "fw", "aea", "--pem", str(pem_file), str(dmg_file), "--output", str(output)],
+            text=True,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        return Error(f"Decryption failed: {e.stderr}")
+
+    # we don't need the .dmg.aea
+    dmg_file.unlink(missing_ok=True)
+
+    # we don't also need the .pem folder that was created by `ipsw`
+    shutil.rmtree(pem_file.parent)
+    
+    return Ok(None)
+
 async def extract_the_biggest_dmg(file: Path, output: Path) -> Result[None, str]:
     with zipfile.ZipFile(file) as zip_file:
         biggest_dmg = max(zip_file.infolist(), key=lambda x: x.file_size)
-        biggest_dmg_file_path = Path(biggest_dmg.filename).resolve()
-    
+        biggest_dmg_file_path = output / biggest_dmg.filename 
+
         if not biggest_dmg_file_path.exists() or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size:
             logger.info(f"extracting {biggest_dmg.filename}")
-            zip_file.extract(biggest_dmg)
+            zip_file.extract(biggest_dmg, path=output)
         else:
             logger.info("skiping dmg extraction")
 
-        command = [
-            '7z', 'x', biggest_dmg_file_path,
-            f'-o{output}',
-            f'-aos', # overwrite
-            f'-bd', # no progress
-            f'-y', 
-            f'System/Library/Carrier Bundles/*' # where all the bundles are
-        ]
+    if "aea" in biggest_dmg_file_path.suffix:
+        result = await decrypt_dmg_aea(file, biggest_dmg_file_path,  output)
+        if isinstance(result, Error):
+            return result
 
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # removes the last .aea from a path
+        biggest_dmg_file_path = biggest_dmg_file_path.parent / biggest_dmg_file_path.stem
 
-        if result.stderr:
-            return Error(f"Couldn't extract {file}, error: {result.stderr}")
+    command = [
+        '7z', 'x', biggest_dmg_file_path,
+        f'-o{output}',
+        f'-aos', # overwrite
+        f'-bd', # no progress
+        f'-y', 
+        f'System/Library/Carrier Bundles/*' # where all the bundles are
+    ]
 
-        biggest_dmg_file_path.unlink(missing_ok=True)
-        file.unlink(missing_ok=True)
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        return Ok(None)
+    if result.stderr:
+        return Error(f"Couldn't extract {file}, error: {result.stderr}")
+
+    biggest_dmg_file_path.unlink(missing_ok=True)
+    file.unlink(missing_ok=True)
+
+    return Ok(None)
 
 async def bundles_glob(path: Path) -> List[str]:
     return glob.glob(f"{path}/System/Library/Carrier Bundles/**/*.bundle")
@@ -211,6 +285,8 @@ async def tar_and_hash_bundles(bundles: List[Path]) -> Result[List[Dict[str, str
 async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaphore: asyncio.Semaphore) -> Result[None, str]:
     for firmware in response.firmwares:
         async with semaphore:
+            logger.info(f"starting {firmware.identifier}")
+
             start_time = datetime.now(UTC)
 
             base_path = Path(firmware.identifier)
@@ -253,9 +329,9 @@ async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaph
             bundles_metadata_path = version_path / "bundles.json"
             bundles_metadata_path.touch(exist_ok=True)
 
-            zipped_bundles_value = tarred_with_hash_bundles.value
+            tarred_bundles_value = tarred_with_hash_bundles.value
 
-            await put_metadata(bundles_metadata_path, "bundles", lambda acc: (acc or []) + zipped_bundles_value)
+            await put_metadata(bundles_metadata_path, "bundles", lambda acc: (acc or []) + tarred_bundles_value)
 
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
             await put_metadata(json_metadata_path, "fw", lambda acc: (acc or []) + [{
@@ -273,8 +349,6 @@ async def bake_ipcc(response: "Response", session: aiohttp.ClientSession, semaph
 
 async def fetch_and_bake(session: aiohttp.ClientSession, iphone_code: str, semaphore: asyncio.Semaphore):
     model = f"iPhone{iphone_code}"
-    logger.info(f"starting {model}")
-
     response = await session.get(f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"})
 
     if response.status == 200:
