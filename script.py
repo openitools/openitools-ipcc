@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import aiohttp
-from tqdm.asyncio import tqdm
+from tqdm import tqdm
 
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg

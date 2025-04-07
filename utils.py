@@ -62,7 +62,6 @@ async def delete_non_bundles(
     except Exception as e:
         return Error(f"Failed to clean up: {e}")
 
-
 async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
     proc = await asyncio.create_subprocess_exec(
         "7z",
@@ -101,5 +100,10 @@ async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
             
             if len(lines) > 10:
                 break
+
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
 
     return Ok(len(lines) > 10)
