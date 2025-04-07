@@ -1,19 +1,21 @@
 import asyncio
 import glob
-import hashlib
-import json
 import logging
 import shutil
 import subprocess
 import tarfile
 import zipfile
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Dict, List
 
 import aiohttp
 from tqdm.asyncio import tqdm
+
+from models import Error, Firmware, Ok, Response, Result
+from scrape_key import decrypt_dmg
+from utils import (bundles_glob, calculate_hash, delete_non_bundles,
+                   put_metadata, system_has_parent)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,126 +24,117 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-IPHONES_PRODUCT_CODES: List[str] = [
-    "7,1",
-    "7,2",
-    "8,1",
-    "8,2",
-    "8,4",
-    "9,1",
-    "9,2",
-    "9,3",
-    "9,4",
-    "10,1",
-    "10,2",
-    "10,4",
-    "10,4",
-    "10,5",
-    "10,6",
-    "11,2",
-    "11,4",
-    "11,6",
-    "11,8",
-    "12,1",
-    "12,3",
-    "12,5",
-    "12,8",
-    "13,1",
-    "13,2",
-    "13,3",
-    "13,4",
-    "14,2",
-    "14,3",
-    "14,4",
-    "14,5",
-    "14,6",
-]
-
-
-T = TypeVar("T")
-E = TypeVar("E")
-
-# for json writing callbacks
-J = TypeVar("J")
-
-
-@dataclass
-class Ok(Generic[T]):
-    value: T
-
-
-@dataclass
-class Error(Generic[E]):
-    error: E
-
-
-Result = Union[Ok[T], Error[E]]
-
-
-@dataclass
-class Firmwares:
-    identifier: str
-    version: str
-    buildid: str
-    sha1sum: str
-    md5sum: str
-    filesize: int
-    url: str
-    releasedate: datetime
-    uploaddate: datetime
-    signed: bool
-
-    @staticmethod
-    def from_dict(data: dict) -> "Firmwares":
-        return Firmwares(
-            identifier=data["identifier"],
-            version=data["version"],
-            buildid=data["buildid"],
-            sha1sum=data["sha1sum"],
-            md5sum=data["md5sum"],
-            filesize=data["filesize"],
-            url=data["url"],
-            releasedate=datetime.fromisoformat(data["releasedate"]),
-            uploaddate=datetime.fromisoformat(data["uploaddate"]),
-            signed=data["signed"],
-        )
-
-
-@dataclass
-class Response:
-    name: str
-    identifier: str
-    firmwares: List[Firmwares]
-    boardconfig: str
-    platform: str
-    cpid: int
-    bdid: int
-
-    @staticmethod
-    def from_dict(data: dict) -> "Response":
-        return Response(
-            name=data["name"],
-            identifier=data["identifier"],
-            firmwares=[Firmwares.from_dict(fw) for fw in data["firmwares"]],
-            boardconfig=data["boardconfig"],
-            platform=data["platform"],
-            cpid=data["cpid"],
-            bdid=data["bdid"],
-        )
-
-
-async def calculate_hash(file_path: Path) -> str:
-    hash_func = hashlib.sha1()
-    with file_path.open("rb") as file:
-        for chunk in iter(lambda: file.read(4096), b""):
-            hash_func.update(chunk)
-
-    return hash_func.hexdigest()
+PRODUCT_CODES: Dict[str, List[str]] = {
+    "iPad": [
+        "16,6",
+        "16,4",
+        "16,2",
+        "15,8",
+        "15,7",
+        "15,6",
+        "15,5",
+        "15,4",
+        "15,3",
+        "14,11",
+        "14,9",
+        "14,6",
+        "14,4",
+        "14,2",
+        "13,19",
+        "13,17",
+        "13,11",
+        "13,10",
+        "13,7",
+        "13,5",
+        "13,2",
+        "12,2",
+        "11,7",
+        "11,4",
+        "11,2",
+        "8,12",
+        "8,10",
+        "8,8",
+        "8,7",
+        "8,4",
+        "8,3",
+        "7,12",
+        "7,6",
+        "7,4",
+        "7,2",
+        "6,12",
+        "6,8",
+        "6,4",
+        "5,4",
+        "5,2",
+        "4,9",
+        "4,8",
+        "4,6",
+        "4,5",
+        "4,3",
+        "4,2",
+        "3,6",
+        "3,5",
+        "3,3",
+        "3,2",
+        "2,7",
+        "2,6",
+        "2,3",
+        "2,2",
+        "1,1",
+    ],
+    "iPhone": [
+        "14,6",
+        "14,5",
+        "14,4",
+        "14,3",
+        "14,2",
+        "13,4",
+        "13,3",
+        "13,2",
+        "13,1",
+        "12,8",
+        "12,5",
+        "12,3",
+        "12,1",
+        "11,8",
+        "11,6",
+        "11,4",
+        "11,2",
+        "10,6",
+        "10,5",
+        "10,4",
+        "10,4",
+        "10,2",
+        "10,1",
+        "9,4",
+        "9,3",
+        "9,2",
+        "9,1",
+        "8,4",
+        "8,2",
+        "8,1",
+        "7,2",
+        "7,1",
+        "6,2",
+        "6,1",
+        "5,4",
+        "5,3",
+        "5,2",
+        "5,1",
+        "4,1",
+        "3,3",
+        "3,2",
+        "3,1",
+    ],
+}
 
 
 async def download_file(
-    firmware: Firmwares, version_folder: Path, session: aiohttp.ClientSession
+    firmware: Firmware, version_folder: Path, session: aiohttp.ClientSession
 ) -> Result[Path, str]:
+    """
+    Downloads the firmware and returns the path to the downloaded .ipsw file
+    """
     file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
 
     if file_path.exists():
@@ -173,32 +166,17 @@ async def download_file(
                     progress.update(len(chunk))
 
     except aiohttp.ClientError as e:
+        file_path.unlink(missing_ok=True)
         return Error(f"Network error: {e}")
 
     except Exception as e:
+        file_path.unlink(missing_ok=True)
         return Error(f"Error at downloading: {e}")
-
-    finally:
-        file_path.unlink(missing_ok=True)  # remove partially downloaded file on error
 
     if (await calculate_hash(file_path)) != firmware.sha1sum:
         return Error(f"Hash mismatch for {file_path}")
 
     return Ok(file_path)
-
-
-async def put_metadata(
-    metadata_path: Path, key: str, callback: Callable[[Optional[J]], J]
-) -> Result[None, str]:
-    """Read & update JSON metadata using a callback."""
-    try:
-        metadata = json.loads(metadata_path.read_text() or "{}")
-        metadata[key] = callback(metadata.get(key))
-        metadata["updated_at"] = datetime.now(UTC).isoformat()
-        metadata_path.write_text(json.dumps(metadata, indent=4))
-    except json.JSONDecodeError as e:
-        return Error(f"Invalid JSON: {e}")
-    return Ok(None)
 
 
 async def decrypt_dmg_aea(
@@ -249,10 +227,6 @@ async def decrypt_dmg_aea(
 
     try:
         logger.info("Decrypting")
-        # extraction_process = await asyncio.create_subprocess_exec("ipsw", "fw", "aea", "--pem", str(pem_file), "--output", str(output), stderr=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
-        #
-        # while extraction_process.returncode is None:
-        #
         subprocess.run(
             [
                 "ipsw",
@@ -280,101 +254,158 @@ async def decrypt_dmg_aea(
     return Ok(None)
 
 
-async def extract_the_biggest_dmg(file: Path, output: Path) -> Result[None, str]:
-    logger.info(f"Extracting the biggest DMG from {file}")
+async def extract_the_biggest_dmg(
+    dmg_file: Path,
+    output: Path,
+    firmware: Firmware,
+    ignored_firmwares_file: Path,
+    *,
+    skip_extraction: bool = False,
+) -> Result[bool, str]:
+    """
+    it would return a bool whether it the `System` has a parent or not
+    """
 
-    with zipfile.ZipFile(file) as zip_file:
-        biggest_dmg = max(zip_file.infolist(), key=lambda x: x.file_size)
-        biggest_dmg_file_path = output / biggest_dmg.filename
-        logger.debug(
-            f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
+    def cleanup():
+        logger.info(f"Cleaning up extracted file: {biggest_dmg_file_path}")
+        biggest_dmg_file_path.unlink(missing_ok=True)
+
+        logger.info(f"Cleaning up original IPSW file: {dmg_file}")
+        dmg_file.unlink(missing_ok=True)
+
+    async def ignore():
+        shutil.rmtree(output)
+
+        await put_metadata(
+            ignored_firmwares_file,
+            "ignored",
+            lambda ign: (ign or []) + [firmware.version],
         )
 
-        if (
-            not biggest_dmg_file_path.exists()
-            or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
-        ):
-            logger.info(f"Extracting {biggest_dmg.filename} to {output}")
-            with (
-                zip_file.open(biggest_dmg) as source,
-                open(biggest_dmg_file_path, "wb") as target,
-                tqdm(
-                    total=biggest_dmg.file_size,
-                    unit="B",
-                    unit_scale=True,
-                    desc=f"Extracting {biggest_dmg.filename}",
-                ) as progress,
-            ):
-                while True:
-                    chunk = source.read(8192)
-                    if not chunk:
-                        break
+    logger.info(f"Extracting the biggest DMG from {dmg_file}")
 
-                    target.write(chunk)
-                    progress.update(len(chunk))
+    try:
+        with zipfile.ZipFile(dmg_file) as zip_file:
+            biggest_dmg = max(zip_file.infolist(), key=lambda x: x.file_size)
 
-            zip_file.extract(biggest_dmg, path=output)
-        else:
-            logger.info("Skipping dmg extraction (file already exists)")
+            # not sure if there's one, idk, but if the biggest file is neithr a .dmg or .dmg.aea then ignore it
+            if not biggest_dmg.filename.endswith((".dmg", ".dmg.aea")):
+                error_msg = "There was no .dmg in the .ipsw file, ignoring"
+                logger.warning(error_msg)
 
-    if "aea" in biggest_dmg_file_path.suffix:
-        logger.info("Detected 'aea' in file suffix, starting decryption process")
-        result = await decrypt_dmg_aea(file, biggest_dmg_file_path, output)
-        if isinstance(result, Error):
-            logger.error("Decryption process failed")
-            return result
+                await ignore()
+                return Error(error_msg)
 
-        # removes the last .aea from a path
-        biggest_dmg_file_path = (
-            biggest_dmg_file_path.parent / biggest_dmg_file_path.stem
+            biggest_dmg_file_path = output / biggest_dmg.filename
+
+            logger.debug(
+                f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
+            )
+
+            if (
+                not biggest_dmg_file_path.exists()
+                or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
+            ) and not skip_extraction:
+                logger.info(f"Extracting {biggest_dmg.filename} to {output}")
+                with (
+                    zip_file.open(biggest_dmg) as source,
+                    open(biggest_dmg_file_path, "wb") as target,
+                    tqdm(
+                        total=biggest_dmg.file_size,
+                        unit="B",
+                        unit_scale=True,
+                        desc=f"Extracting {biggest_dmg.filename}",
+                    ) as progress,
+                ):
+                    while True:
+                        chunk = source.read(8192)
+                        if not chunk:
+                            break
+
+                        target.write(chunk)
+                        progress.update(len(chunk))
+
+            else:
+                logger.info("Skipping dmg extraction (file already exists)")
+
+        if "aea" in biggest_dmg_file_path.suffix:
+            logger.info("Detected 'aea' in file suffix, starting decryption process")
+            decryption_result = await decrypt_dmg_aea(
+                dmg_file, biggest_dmg_file_path, output
+            )
+
+            if isinstance(decryption_result, Error):
+                logger.error("Decryption process failed")
+
+                return decryption_result
+
+            # removes the last .aea from a path, that's because while decrypting,
+            # it already make a .dmg file with the same name
+            biggest_dmg_file_path = (
+                biggest_dmg_file_path.parent / biggest_dmg_file_path.stem
+            )
+
+        logger.info(f"Extracting bundles from {biggest_dmg_file_path} using 7z")
+
+        has_parent = await system_has_parent(biggest_dmg_file_path)
+
+        if isinstance(has_parent, Error):
+            return has_parent
+
+        command = [
+            "7z",
+            "x",
+            biggest_dmg_file_path,
+            f"-o{output}",
+            "-aos",  # overwrite
+            "-bd",  # no progress
+            "-y",
+            # if true, that means there is a parent folder for the `System` folder, so glob that
+            f"{'*/' if has_parent.value else ''}System/Library/Carrier Bundles/*",  # where all the bundles are
+        ]
+
+        decryption_result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-    logger.info(f"Extracting bundles from {biggest_dmg_file_path} using 7z")
-    command = [
-        "7z",
-        "x",
-        biggest_dmg_file_path,
-        f"-o{output}",
-        "-aos",  # overwrite
-        "-bd",  # no progress
-        "-y",
-        "System/Library/Carrier Bundles/*",  # where all the bundles are
-    ]
+        stdout = decryption_result.stdout
+        stderr = decryption_result.stderr
 
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.debug(f"7z stdout: {stdout}")
+        logger.debug(f"7z stderr: {stderr}")
 
-    stdout = result.stdout
-    stderr = result.stderr
+        if decryption_result.returncode != 0:
+            error_msg = f"Couldn't extract {dmg_file}, error: {stderr}"
+            logger.error(error_msg)
 
-    logger.debug(f"7z stdout: {stdout}")
-    logger.debug(f"7z stderr: {stderr}")
+            # usually with old firmwares, we must then decrypt it using a special key
+            if "Cannot open the file as [Dmg] archive" in str(stderr):
+                decrypt_result = await decrypt_dmg(
+                    dmg_file,
+                    biggest_dmg_file_path,
+                    firmware.buildid,
+                    firmware.identifier,
+                )
 
-    if result.returncode != 0:
-        error_msg = f"Couldn't extract {file}, error: {stderr}"
-        logger.error(error_msg)
-        return Error(error_msg)
+                if isinstance(decrypt_result, Error):
+                    return Error(
+                        f"Unable to extract the dmg, error: {decrypt_result}"
+                    )
 
-    logger.info(f"Cleaning up extracted file: {biggest_dmg_file_path}")
-    biggest_dmg_file_path.unlink(missing_ok=True)
+                return await extract_the_biggest_dmg(
+                    dmg_file,
+                    output,
+                    firmware,
+                    ignored_firmwares_file,
+                    skip_extraction=True,
+                )
 
-    logger.info(f"Cleaning up original IPSW file: {file}")
-    file.unlink(missing_ok=True)
+            return Error(error_msg)
 
-    return Ok(None)
+        return has_parent
 
-
-async def bundles_glob(path: Path) -> List[str]:
-    return glob.glob(f"{path}/System/Library/Carrier Bundles/**/*.bundle")
-
-
-async def delete_non_bundles(
-    base_path: Path, bundles: List[Path]
-) -> Result[List[Path], str]:
-    for bundle in bundles:
-        shutil.move(str(bundle), str(base_path))
-
-    shutil.rmtree(base_path / "System", ignore_errors=True)
-    return Ok([base_path / bundle.name for bundle in bundles])
+    finally:
+        cleanup()
 
 
 async def tar_and_hash_bundles(
@@ -403,14 +434,14 @@ async def tar_and_hash_bundles(
 
 
 async def bake_ipcc(
-    response: "Response",
+    response: Response,
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
     group: asyncio.TaskGroup,
 ):
     for firmware in response.firmwares:
 
-        async def run(firmware):
+        async def run(firmware: Firmware):
             async with semaphore:
                 try:
                     start_time = datetime.now(UTC)
@@ -421,32 +452,44 @@ async def bake_ipcc(
                     version_path = base_path / firmware.version
                     version_path.mkdir(exist_ok=True)
 
-                    json_metadata_path = base_path / "metadata.json"
-                    json_metadata_path.touch(exist_ok=True)
+                    base_metadata_path = base_path / "metadata.json"
+                    base_metadata_path.touch(exist_ok=True)
 
-                    if firmware.version in json_metadata_path.read_text():
+                    ignored_firmwares_metadata_path = (
+                        base_path / "ignored_firmwares.json"
+                    )
+                    ignored_firmwares_metadata_path.touch(exist_ok=True)
+
+                    bundles_metadata_path = version_path / "bundles.json"
+                    bundles_metadata_path.touch(exist_ok=True)
+
+                    if firmware.version in ignored_firmwares_metadata_path.read_text():
                         return
 
-                    download_result = await download_file(
-                        firmware, version_path, session
-                    )
+                    if firmware.version in base_metadata_path.read_text():
+                        return
 
-                    if isinstance(download_result, Error):
-                        return download_result
+                    ipsw_file = await download_file(firmware, version_path, session)
+
+                    if isinstance(ipsw_file, Error):
+                        return ipsw_file
 
                     extract_big_result = await extract_the_biggest_dmg(
-                        download_result.value, version_path
+                        ipsw_file.value,
+                        version_path,
+                        firmware,
+                        ignored_firmwares_metadata_path,
                     )
 
                     if isinstance(extract_big_result, Error):
                         return extract_big_result
 
-                    bundles_folders = list(
-                        map(lambda s: Path(s), await bundles_glob(version_path))
-                    )
+                    has_parent = extract_big_result.value
+
+                    bundles_folders = list(await bundles_glob(version_path, has_parent))
 
                     new_bundles_folders = await delete_non_bundles(
-                        version_path, bundles_folders
+                        version_path, bundles_folders, has_parent
                     )
 
                     if isinstance(new_bundles_folders, Error):
@@ -456,14 +499,12 @@ async def bake_ipcc(
                         new_bundles_folders.value
                     )
 
+                    # we don't need the .bundle folder after tarring it (compress it to a .tar)
                     for path in new_bundles_folders.value:
                         shutil.rmtree(path)
 
                     if isinstance(tarred_with_hash_bundles, Error):
                         return tarred_with_hash_bundles
-
-                    bundles_metadata_path = version_path / "bundles.json"
-                    bundles_metadata_path.touch(exist_ok=True)
 
                     tarred_bundles_value = tarred_with_hash_bundles.value
 
@@ -474,8 +515,9 @@ async def bake_ipcc(
                     )
 
                     elapsed = (datetime.now(UTC) - start_time).total_seconds()
+
                     await put_metadata(
-                        json_metadata_path,
+                        base_metadata_path,
                         "fw",
                         lambda acc: (acc or [])
                         + [
@@ -484,24 +526,24 @@ async def bake_ipcc(
                                 "buildid": firmware.buildid,
                                 "downloaded_at": datetime.now(UTC).isoformat(),
                                 "processing_time_sec": elapsed,
-                                "sha1": firmware.sha1sum,
-                                "status": "processed",
                             }
                         ],
                     )
+
                 except Exception as e:
-                    logger.error(f"Something wen wrong, {e}")
+                    logger.error(f"Something went wrong, {e}")
 
         group.create_task(run(firmware))
 
 
 async def fetch_and_bake(
     session: aiohttp.ClientSession,
-    iphone_code: str,
+    code: str,
+    product: str,
     semaphore: asyncio.Semaphore,
     group: asyncio.TaskGroup,
 ):
-    model = f"iPhone{iphone_code}"
+    model = f"{product}{code}"
     response = await session.get(
         f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
     )
@@ -521,8 +563,9 @@ async def main():
 
     async with aiohttp.ClientSession() as session:
         async with asyncio.TaskGroup() as group:
-            for iphone_code in IPHONES_PRODUCT_CODES:
-                await fetch_and_bake(session, iphone_code, semaphore, group)
+            for product, codes in PRODUCT_CODES.items():
+                for code in codes:
+                    await fetch_and_bake(session, code, product, semaphore, group)
 
 
 if __name__ == "__main__":
