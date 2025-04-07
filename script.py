@@ -393,6 +393,7 @@ async def extract_the_biggest_dmg(
                         f"Unable to extract the dmg, error: {decrypt_result}"
                     )
 
+                # TODO: maybe we can just extract the new thing and move on and not re-running the entire function
                 return await extract_the_biggest_dmg(
                     dmg_file,
                     output,
@@ -441,35 +442,33 @@ async def bake_ipcc(
     group: asyncio.TaskGroup,
 ):
     for firmware in response.firmwares:
+        base_path = Path(firmware.identifier)
+        base_path.mkdir(exist_ok=True)
+
+        version_path = base_path / firmware.version
+        version_path.mkdir(exist_ok=True)
+
+        base_metadata_path = base_path / "metadata.json"
+        base_metadata_path.touch(exist_ok=True)
+
+        ignored_firmwares_metadata_path = (
+              base_path / "ignored_firmwares.json"
+        )
+        ignored_firmwares_metadata_path.touch(exist_ok=True)
+
+        bundles_metadata_path = version_path / "bundles.json"
+        bundles_metadata_path.touch(exist_ok=True)
+
+        if firmware.version in ignored_firmwares_metadata_path.read_text():
+            continue
+
+        if firmware.version in base_metadata_path.read_text():
+            continue
 
         async def run(firmware: Firmware):
             async with semaphore:
                 try:
                     start_time = datetime.now(UTC)
-
-                    base_path = Path(firmware.identifier)
-                    base_path.mkdir(exist_ok=True)
-
-                    version_path = base_path / firmware.version
-                    version_path.mkdir(exist_ok=True)
-
-                    base_metadata_path = base_path / "metadata.json"
-                    base_metadata_path.touch(exist_ok=True)
-
-                    ignored_firmwares_metadata_path = (
-                        base_path / "ignored_firmwares.json"
-                    )
-                    ignored_firmwares_metadata_path.touch(exist_ok=True)
-
-                    bundles_metadata_path = version_path / "bundles.json"
-                    bundles_metadata_path.touch(exist_ok=True)
-
-                    if firmware.version in ignored_firmwares_metadata_path.read_text():
-                        return
-
-                    if firmware.version in base_metadata_path.read_text():
-                        return
-
                     ipsw_file = await download_file(firmware, version_path, session)
 
                     if isinstance(ipsw_file, Error):

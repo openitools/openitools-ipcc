@@ -42,7 +42,7 @@ async def _fetch_key(build_train: str, build_id: str, identifier: str) -> Result
     async with aiohttp.ClientSession() as session:
         html = await _fetch_html(
             session,
-            f"https://theapplewiki.com/wiki/Keys:{build_train}_{build_id.upper()}_({identifier})",
+            f"https://theapplewiki.com/wiki/Keys:{build_train}_{build_id}_({identifier})",
         )
 
         if isinstance(html, Error):
