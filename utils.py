@@ -5,20 +5,28 @@ import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, List, Optional, TypeVar
+from typing import Callable, List, Literal, Optional, Tuple, TypeVar
 
-from models import Error, Ok, Result
+from models import Error, Firmware, Ok, Result
 
 # for json writing callbacks
 J = TypeVar("J")
 
-async def calculate_hash(file_path: Path) -> str:
-    hash_func = hashlib.sha1()
-    with file_path.open("rb") as file:
-        for chunk in iter(lambda: file.read(4096), b""):
-            hash_func.update(chunk)
+async def calculate_hash(file_path: Path) -> Tuple[str, str]:
+    def hash(algo: Literal["sha1", "md5"]):
+        hash_func =  getattr(hashlib, algo)()
+        with file_path.open("rb") as file:
+            for chunk in iter(lambda: file.read(4096), b""):
+                hash_func.update(chunk)
 
-    return hash_func.hexdigest()
+        return hash_func.hexdigest()
+
+    return (hash("sha1"), hash("md5"))
+
+async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
+    sha1, md5 = await calculate_hash(file_path)
+
+    return sha1 == firmware.sha1sum or md5 == firmware.md5sum
 
 
 async def put_metadata(

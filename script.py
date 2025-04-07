@@ -15,8 +15,8 @@ from tqdm import tqdm
 
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
-from utils import (bundles_glob, calculate_hash, delete_non_bundles,
-                   put_metadata, system_has_parent)
+from utils import (bundles_glob, calculate_hash, compare_either_hash,
+                   delete_non_bundles, put_metadata, system_has_parent)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -139,7 +139,8 @@ async def download_file(
     file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
 
     if file_path.exists():
-        if (await calculate_hash(file_path)) == firmware.sha1sum:
+        if (await compare_either_hash(file_path, firmware)):
+            logger.info("ipsw file already exists, using it")
             return Ok(file_path)
 
         logger.info("Detected a corrupted file, redownloading")
@@ -174,7 +175,7 @@ async def download_file(
         file_path.unlink(missing_ok=True)
         return Error(f"Error at downloading: {e}")
 
-    if (await calculate_hash(file_path)) != firmware.sha1sum:
+    if not (await compare_either_hash(file_path, firmware)):
         return Error(f"Hash mismatch for {file_path}")
 
     return Ok(file_path)
@@ -421,12 +422,12 @@ async def tar_and_hash_bundles(
         with tarfile.open(bundle_tar, "w", format=tarfile.PAX_FORMAT) as tar:
             tar.add(bundle, arcname=bundle.name, recursive=True)
 
-        hash_value = await calculate_hash(bundle_tar)
+        sha1, _ = await calculate_hash(bundle_tar)
         output_bundles.append(
             {
                 "bundle_name": bundle_tar.stem,
                 "tar_file": bundle_tar.name,
-                "sha1": hash_value,
+                "sha1": sha1,
                 "file_size": bundle_tar.stat().st_size,
                 "created_at": datetime.now(UTC).isoformat(),
             }
@@ -442,33 +443,35 @@ async def bake_ipcc(
     group: asyncio.TaskGroup,
 ):
     for firmware in response.firmwares:
-        base_path = Path(firmware.identifier)
-        base_path.mkdir(exist_ok=True)
-
-        version_path = base_path / firmware.version
-        version_path.mkdir(exist_ok=True)
-
-        base_metadata_path = base_path / "metadata.json"
-        base_metadata_path.touch(exist_ok=True)
-
-        ignored_firmwares_metadata_path = (
-              base_path / "ignored_firmwares.json"
-        )
-        ignored_firmwares_metadata_path.touch(exist_ok=True)
-
-        bundles_metadata_path = version_path / "bundles.json"
-        bundles_metadata_path.touch(exist_ok=True)
-
-        if firmware.version in ignored_firmwares_metadata_path.read_text():
-            continue
-
-        if firmware.version in base_metadata_path.read_text():
-            continue
 
         async def run(firmware: Firmware):
             async with semaphore:
                 try:
                     start_time = datetime.now(UTC)
+
+                    base_path = Path(firmware.identifier)
+                    base_path.mkdir(exist_ok=True)
+
+                    version_path = base_path / firmware.version
+                    version_path.mkdir(exist_ok=True)
+
+                    base_metadata_path = base_path / "metadata.json"
+                    base_metadata_path.touch(exist_ok=True)
+
+                    ignored_firmwares_metadata_path = (
+                          base_path / "ignored_firmwares.json"
+                    )
+                    ignored_firmwares_metadata_path.touch(exist_ok=True)
+
+                    bundles_metadata_path = version_path / "bundles.json"
+                    bundles_metadata_path.touch(exist_ok=True)
+
+                    if firmware.version in ignored_firmwares_metadata_path.read_text():
+                        return
+
+                    if firmware.version in base_metadata_path.read_text():
+                        return
+
                     ipsw_file = await download_file(firmware, version_path, session)
 
                     if isinstance(ipsw_file, Error):
