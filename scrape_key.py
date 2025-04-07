@@ -48,7 +48,7 @@ async def _fetch_key(build_train: str, build_id: str, identifier: str) -> Result
         if isinstance(html, Error):
             return Error(f"Unable to scrape the website, error: {html}")
 
-        key = await _extract_key_from_html(html)
+        key = await _extract_key_from_html(html.value)
 
         if isinstance(key, Error):
             return Error("Unable to find the key")
@@ -121,7 +121,7 @@ async def _fetch_html(session, url) -> Result[str, str]:
         return Error(str(e))
 
 
-async def _extract_key_from_html(html) -> Result[str, None]:
+async def _extract_key_from_html(html: str) -> Result[str, None]:
     soup = BeautifulSoup(html, "html.parser")
     code_tag = soup.find("code", id="keypage-rootfs-key")
     if code_tag:

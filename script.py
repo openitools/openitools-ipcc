@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import tarfile
+import traceback
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -531,7 +532,7 @@ async def bake_ipcc(
                     )
 
                 except Exception as e:
-                    logger.error(f"Something went wrong, {e}")
+                    logger.error(f"Something went wrong, {e}\n traceback: {traceback.format_exc()}")
 
         group.create_task(run(firmware))
 
