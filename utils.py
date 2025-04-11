@@ -12,9 +12,10 @@ from models import Error, Firmware, Ok, Result
 # for json writing callbacks
 J = TypeVar("J")
 
+
 async def calculate_hash(file_path: Path) -> Tuple[str, str]:
     def hash(algo: Literal["sha1", "md5"]):
-        hash_func =  getattr(hashlib, algo)()
+        hash_func = getattr(hashlib, algo)()
         with file_path.open("rb") as file:
             for chunk in iter(lambda: file.read(4096), b""):
                 hash_func.update(chunk)
@@ -22,6 +23,7 @@ async def calculate_hash(file_path: Path) -> Tuple[str, str]:
         return hash_func.hexdigest()
 
     return (hash("sha1"), hash("md5"))
+
 
 async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
     sha1, md5 = await calculate_hash(file_path)
@@ -44,7 +46,14 @@ async def put_metadata(
 
 
 async def bundles_glob(path: Path, has_parent: bool = False) -> List[Path]:
-    return list(map(lambda s: Path(s).resolve(), glob.glob(f'{path}/{"*/" if has_parent else ""}System/Library/Carrier Bundles/**/*.bundle')))
+    return list(
+        map(
+            lambda s: Path(s).resolve(),
+            glob.glob(
+                f"{path}/{'*/' if has_parent else ''}System/Library/Carrier Bundles/**/*.bundle"
+            ),
+        )
+    )
 
 
 async def delete_non_bundles(
@@ -69,6 +78,7 @@ async def delete_non_bundles(
 
     except Exception as e:
         return Error(f"Failed to clean up: {e}")
+
 
 async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
     proc = await asyncio.create_subprocess_exec(
@@ -105,7 +115,7 @@ async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
 
         if start_collecting:
             lines.add(line)
-            
+
             if len(lines) > 10:
                 break
 

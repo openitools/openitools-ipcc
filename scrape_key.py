@@ -17,7 +17,6 @@ HEADERS = {
 
 
 def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
-
     if isinstance(plist_data, dict):
         for key, value in plist_data.items():
             if key == target_key:
@@ -35,10 +34,12 @@ def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
                 if isinstance(result, Ok):
                     return result
 
-    return Error(None) 
+    return Error(None)
 
 
-async def _fetch_key(build_train: str, build_id: str, identifier: str) -> Result[str, str]:
+async def _fetch_key(
+    build_train: str, build_id: str, identifier: str
+) -> Result[str, str]:
     async with aiohttp.ClientSession() as session:
         html = await _fetch_html(
             session,
@@ -62,7 +63,7 @@ async def decrypt_dmg(
     with zipfile.ZipFile(ipsw_file) as zip_file:
         with zip_file.open("BuildManifest.plist") as bmplist:
             plist_data = plistlib.loads(bmplist.read())
-            build_train= _find_key_in_plist(plist_data, "BuildTrain")
+            build_train = _find_key_in_plist(plist_data, "BuildTrain")
 
             if isinstance(build_train, Error):
                 return Error("BuildTrain was not found in the BuildManifest.plist file")
@@ -116,7 +117,9 @@ async def _fetch_html(session, url) -> Result[str, str]:
             if response.status == 200:
                 return Ok(text)
             else:
-                return Error(f"Failed to fetch {url}: HTTP {response.status}, error: {text}")
+                return Error(
+                    f"Failed to fetch {url}: HTTP {response.status}, error: {text}"
+                )
     except Exception as e:
         return Error(str(e))
 

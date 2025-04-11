@@ -126,7 +126,7 @@ PRODUCT_CODES: Dict[str, List[str]] = {
         "3,3",
         "3,2",
         "3,1",
-        "2,1"
+        "2,1",
     ],
 }
 
@@ -140,7 +140,7 @@ async def download_file(
     file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
 
     if file_path.exists():
-        if (await compare_either_hash(file_path, firmware)):
+        if await compare_either_hash(file_path, firmware):
             logger.info("ipsw file already exists, using it")
             return Ok(file_path)
 
@@ -391,9 +391,7 @@ async def extract_the_biggest_dmg(
                 )
 
                 if isinstance(decrypt_result, Error):
-                    return Error(
-                        f"Unable to extract the dmg, error: {decrypt_result}"
-                    )
+                    return Error(f"Unable to extract the dmg, error: {decrypt_result}")
 
                 # TODO: maybe we can just extract the new thing and move on and not re-running the entire function
                 return await extract_the_biggest_dmg(
@@ -460,7 +458,7 @@ async def bake_ipcc(
                     base_metadata_path.touch(exist_ok=True)
 
                     ignored_firmwares_metadata_path = (
-                          base_path / "ignored_firmwares.json"
+                        base_path / "ignored_firmwares.json"
                     )
                     ignored_firmwares_metadata_path.touch(exist_ok=True)
 
@@ -535,7 +533,9 @@ async def bake_ipcc(
                     )
 
                 except Exception as e:
-                    logger.error(f"Something went wrong, {e}\n traceback: {traceback.format_exc()}")
+                    logger.error(
+                        f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
+                    )
 
         group.create_task(run(firmware))
 
