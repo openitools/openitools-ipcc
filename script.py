@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import aiohttp
-from tqdm import tqdm
+from tqdm.asyncio import tqdm
 
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
@@ -554,10 +554,7 @@ async def fetch_and_bake(
 
     if response.status == 200:
         parsed_data = Response.from_dict(await response.json())
-        bake_result = await bake_ipcc(parsed_data, session, semaphore, group)
-
-        if isinstance(bake_result, Error):
-            logger.error(f"Error: {bake_result.error}")
+        await bake_ipcc(parsed_data, session, semaphore, group)
     else:
         logger.error(f"Failed to fetch data for {model}: {await response.text()}")
 
