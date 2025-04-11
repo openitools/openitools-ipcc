@@ -474,7 +474,7 @@ async def bake_ipcc(
                     ipsw_file = await download_file(firmware, version_path, session)
 
                     if isinstance(ipsw_file, Error):
-                        return ipsw_file
+                        raise RuntimeError(ipsw_file)
 
                     extract_big_result = await extract_the_biggest_dmg(
                         ipsw_file.value,
@@ -484,7 +484,7 @@ async def bake_ipcc(
                     )
 
                     if isinstance(extract_big_result, Error):
-                        return extract_big_result
+                        raise RuntimeError(extract_big_result)
 
                     has_parent = extract_big_result.value
 
@@ -495,7 +495,7 @@ async def bake_ipcc(
                     )
 
                     if isinstance(new_bundles_folders, Error):
-                        return new_bundles_folders
+                        raise RuntimeError(new_bundles_folders)
 
                     tarred_with_hash_bundles = await tar_and_hash_bundles(
                         new_bundles_folders.value
@@ -506,7 +506,7 @@ async def bake_ipcc(
                         shutil.rmtree(path)
 
                     if isinstance(tarred_with_hash_bundles, Error):
-                        return tarred_with_hash_bundles
+                        raise  RuntimeError(tarred_with_hash_bundles)
 
                     tarred_bundles_value = tarred_with_hash_bundles.value
 
