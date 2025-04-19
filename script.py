@@ -203,6 +203,7 @@ async def decrypt_dmg_aea(
             )
 
         subprocess.run(["sudo", "dpkg", "-i", str(deb_path)], check=True)
+        deb_path.unlink(missing_ok=True)
 
     try:
         subprocess.run(
