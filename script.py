@@ -202,7 +202,7 @@ async def decrypt_dmg_aea(
                 check=True,
             )
 
-        subprocess.run(["dpkg", "-i", str(deb_path)], check=True)
+        subprocess.run(["sudo", "dpkg", "-i", str(deb_path)], check=True)
 
     try:
         subprocess.run(
@@ -506,7 +506,7 @@ async def bake_ipcc(
                         shutil.rmtree(path)
 
                     if isinstance(tarred_with_hash_bundles, Error):
-                        raise  RuntimeError(tarred_with_hash_bundles)
+                        raise RuntimeError(tarred_with_hash_bundles)
 
                     tarred_bundles_value = tarred_with_hash_bundles.value
 
@@ -567,7 +567,6 @@ async def main():
             for product, codes in PRODUCT_CODES.items():
                 for code in codes:
                     await fetch_and_bake(session, code, product, semaphore, group)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
