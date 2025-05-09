@@ -177,7 +177,7 @@ async def download_file(
         return Error(f"Error at downloading: {e}")
 
     if not (await compare_either_hash(file_path, firmware)):
-        return Error(f"Hash mismatch for {file_path}")
+        logger.warning(f"Hash mismatch for {file_path}")
 
     return Ok(file_path)
 

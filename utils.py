@@ -28,7 +28,7 @@ async def calculate_hash(file_path: Path) -> Tuple[str, str]:
 async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
     sha1, md5 = await calculate_hash(file_path)
 
-    return sha1 == firmware.sha1sum or md5 == firmware.md5sum
+    return sha1.strip() == firmware.sha1sum.strip() or md5.strip() == firmware.md5sum.strip()
 
 
 async def put_metadata(
