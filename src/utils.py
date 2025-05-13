@@ -3,6 +3,7 @@ import glob
 import hashlib
 import json
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, List, Literal, Optional, Tuple, TypeVar
@@ -12,6 +13,34 @@ from models import Error, Firmware, Ok, Result
 # for json writing callbacks
 J = TypeVar("J")
 
+
+def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
+    command = f"git ls-tree -r --name-only {branch} -- {file_path}"
+    result = subprocess.run(command.split(), stdout=subprocess.PIPE, check=True)
+
+    return str(result.stdout).strip() != ""
+
+
+def copy_previous_metadata(ident: str) -> None:
+    ignored_firms_file_name = "ignored_firmwares.json"
+    ignored_firms_exists = check_file_existence_in_branch("files", f"{ident}/{ignored_firms_file_name}")
+
+    metadata_file_name = "metadata.json"
+    metadata_exists = check_file_existence_in_branch("files", f"{ident}/{metadata_file_name}")
+
+    command = lambda file, ident=ident: f"git show files:{ident}/{file}"
+
+    Path(ident).mkdir(exist_ok=True)
+
+    if ignored_firms_exists:
+
+        with open(ignored_firms_file_name, "w") as f:
+            subprocess.run(command(ignored_firms_file_name).split(), stdout=f, check=True)
+
+    if metadata_exists:
+
+        with open(metadata_file_name, "w") as f:
+            subprocess.run(command(metadata_file_name).split(), stdout=f, check=True)
 
 async def calculate_hash(file_path: Path) -> Tuple[str, str]:
     def hash(algo: Literal["sha1", "md5"]):

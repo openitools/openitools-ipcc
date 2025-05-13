@@ -17,7 +17,8 @@ from tqdm.asyncio import tqdm
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
 from utils import (bundles_glob, calculate_hash, compare_either_hash,
-                   delete_non_bundles, put_metadata, system_has_parent)
+                   copy_previous_metadata, delete_non_bundles, put_metadata,
+                   system_has_parent)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -541,7 +542,6 @@ async def bake_ipcc(
 
             group.create_task(run(firmware))
 
-
 async def fetch_and_bake(
     session: aiohttp.ClientSession,
     code: str,
@@ -555,9 +555,12 @@ async def fetch_and_bake(
 
     if response.status == 200:
         parsed_data = Response.from_dict(await response.json())
+        ident = parsed_data.firmwares[0].identifier
+        
+        copy_previous_metadata(ident)
+
         await bake_ipcc(parsed_data, session, semaphore)
 
-        ident = parsed_data.firmwares[0].identifier
         os.system("git switch -f  files")
         os.system(f"git add -f {ident}")
         os.system(f"git commit -m 'added {ident} ipcc files'")
