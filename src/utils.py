@@ -16,31 +16,31 @@ J = TypeVar("J")
 
 def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     command = f"git ls-tree -r --name-only {branch} -- {file_path}"
-    result = subprocess.run(command.split(), stdout=subprocess.PIPE, check=True)
+    result = subprocess.run(command.split(), stdout=subprocess.PIPE, check=True, text=True)
 
-    return str(result.stdout).strip() != ""
+    return bool(result.stdout.strip())
 
 
 def copy_previous_metadata(ident: str) -> None:
-    ignored_firms_file_name = "ignored_firmwares.json"
-    ignored_firms_exists = check_file_existence_in_branch("files", f"{ident}/{ignored_firms_file_name}")
+    ignored_firms_file_path = f"{ident}/ignored_firmwares.json"
+    ignored_firms_exists = check_file_existence_in_branch("files", ignored_firms_file_path)
 
-    metadata_file_name = "metadata.json"
-    metadata_exists = check_file_existence_in_branch("files", f"{ident}/{metadata_file_name}")
+    metadata_file_path = f"{ident}/metadata.json"
+    metadata_exists = check_file_existence_in_branch("files", metadata_file_path)
 
-    command = lambda file, ident=ident: f"git show files:{ident}/{file}"
+    command = lambda file_path: f"git show files:{file_path}"
 
     Path(ident).mkdir(exist_ok=True)
 
     if ignored_firms_exists:
 
-        with open(ignored_firms_file_name, "w") as f:
-            subprocess.run(command(ignored_firms_file_name).split(), stdout=f, check=True)
+        with open(ignored_firms_file_path, "w") as f:
+            subprocess.run(command(ignored_firms_file_path).split(), stdout=f, check=True)
 
     if metadata_exists:
 
-        with open(metadata_file_name, "w") as f:
-            subprocess.run(command(metadata_file_name).split(), stdout=f, check=True)
+        with open(metadata_file_path, "w") as f:
+            subprocess.run(command(metadata_file_path).split(), stdout=f, check=True)
 
 async def calculate_hash(file_path: Path) -> Tuple[str, str]:
     def hash(algo: Literal["sha1", "md5"]):

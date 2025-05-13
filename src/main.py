@@ -570,6 +570,9 @@ async def fetch_and_bake(
 
 
 async def main():
+    # go back before 'src'
+    os.chdir(__file__.removesuffix(f"/src/{__file__.split('/')[-1]}"))
+
     semaphore = asyncio.Semaphore(5)
 
     async with aiohttp.ClientSession() as session:
