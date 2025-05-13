@@ -440,105 +440,105 @@ async def bake_ipcc(
     response: Response,
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
-    group: asyncio.TaskGroup,
 ):
-    for firmware in response.firmwares:
+    async with asyncio.TaskGroup() as group:
+        for firmware in response.firmwares:
 
-        async def run(firmware: Firmware):
-            async with semaphore:
-                try:
-                    start_time = datetime.now(UTC)
+            async def run(firmware: Firmware):
+                async with semaphore:
+                    try:
+                        start_time = datetime.now(UTC)
 
-                    base_path = Path(firmware.identifier)
-                    base_path.mkdir(exist_ok=True)
+                        base_path = Path(firmware.identifier)
+                        base_path.mkdir(exist_ok=True)
 
-                    version_path = base_path / firmware.version
-                    version_path.mkdir(exist_ok=True)
+                        version_path = base_path / firmware.version
+                        version_path.mkdir(exist_ok=True)
 
-                    base_metadata_path = base_path / "metadata.json"
-                    base_metadata_path.touch(exist_ok=True)
+                        base_metadata_path = base_path / "metadata.json"
+                        base_metadata_path.touch(exist_ok=True)
 
-                    ignored_firmwares_metadata_path = (
-                        base_path / "ignored_firmwares.json"
-                    )
-                    ignored_firmwares_metadata_path.touch(exist_ok=True)
+                        ignored_firmwares_metadata_path = (
+                            base_path / "ignored_firmwares.json"
+                        )
+                        ignored_firmwares_metadata_path.touch(exist_ok=True)
 
-                    bundles_metadata_path = version_path / "bundles.json"
-                    bundles_metadata_path.touch(exist_ok=True)
+                        bundles_metadata_path = version_path / "bundles.json"
+                        bundles_metadata_path.touch(exist_ok=True)
 
-                    if firmware.version in ignored_firmwares_metadata_path.read_text():
-                        return
+                        if firmware.version in ignored_firmwares_metadata_path.read_text():
+                            return
 
-                    if firmware.version in base_metadata_path.read_text():
-                        return
+                        if firmware.version in base_metadata_path.read_text():
+                            return
 
-                    ipsw_file = await download_file(firmware, version_path, session)
+                        ipsw_file = await download_file(firmware, version_path, session)
 
-                    if isinstance(ipsw_file, Error):
-                        raise RuntimeError(ipsw_file)
+                        if isinstance(ipsw_file, Error):
+                            raise RuntimeError(ipsw_file)
 
-                    extract_big_result = await extract_the_biggest_dmg(
-                        ipsw_file.value,
-                        version_path,
-                        firmware,
-                        ignored_firmwares_metadata_path,
-                    )
+                        extract_big_result = await extract_the_biggest_dmg(
+                            ipsw_file.value,
+                            version_path,
+                            firmware,
+                            ignored_firmwares_metadata_path,
+                        )
 
-                    if isinstance(extract_big_result, Error):
-                        raise RuntimeError(extract_big_result)
+                        if isinstance(extract_big_result, Error):
+                            raise RuntimeError(extract_big_result)
 
-                    has_parent = extract_big_result.value
+                        has_parent = extract_big_result.value
 
-                    bundles_folders = list(await bundles_glob(version_path, has_parent))
+                        bundles_folders = list(await bundles_glob(version_path, has_parent))
 
-                    new_bundles_folders = await delete_non_bundles(
-                        version_path, bundles_folders, has_parent
-                    )
+                        new_bundles_folders = await delete_non_bundles(
+                            version_path, bundles_folders, has_parent
+                        )
 
-                    if isinstance(new_bundles_folders, Error):
-                        raise RuntimeError(new_bundles_folders)
+                        if isinstance(new_bundles_folders, Error):
+                            raise RuntimeError(new_bundles_folders)
 
-                    tarred_with_hash_bundles = await tar_and_hash_bundles(
-                        new_bundles_folders.value
-                    )
+                        tarred_with_hash_bundles = await tar_and_hash_bundles(
+                            new_bundles_folders.value
+                        )
 
-                    # we don't need the .bundle folder after tarring it (compress it to a .tar)
-                    for path in new_bundles_folders.value:
-                        shutil.rmtree(path)
+                        # we don't need the .bundle folder after tarring it (compress it to a .tar)
+                        for path in new_bundles_folders.value:
+                            shutil.rmtree(path)
 
-                    if isinstance(tarred_with_hash_bundles, Error):
-                        raise RuntimeError(tarred_with_hash_bundles)
+                        if isinstance(tarred_with_hash_bundles, Error):
+                            raise RuntimeError(tarred_with_hash_bundles)
 
-                    tarred_bundles_value = tarred_with_hash_bundles.value
+                        tarred_bundles_value = tarred_with_hash_bundles.value
 
-                    await put_metadata(
-                        bundles_metadata_path,
-                        "bundles",
-                        lambda acc: (acc or []) + tarred_bundles_value,
-                    )
+                        await put_metadata(
+                            bundles_metadata_path,
+                            "bundles",
+                            lambda acc: (acc or []) + tarred_bundles_value,
+                        )
 
-                    elapsed = (datetime.now(UTC) - start_time).total_seconds()
+                        elapsed = (datetime.now(UTC) - start_time).total_seconds()
 
-                    await put_metadata(
-                        base_metadata_path,
-                        "fw",
-                        lambda acc: (acc or [])
-                        + [
-                            {
-                                "version": firmware.version,
-                                "buildid": firmware.buildid,
-                                "downloaded_at": datetime.now(UTC).isoformat(),
-                                "processing_time_sec": elapsed,
-                            }
-                        ],
-                    )
+                        await put_metadata(
+                            base_metadata_path,
+                            "fw",
+                            lambda acc: (acc or [])
+                            + [
+                                {
+                                    "version": firmware.version,
+                                    "buildid": firmware.buildid,
+                                    "downloaded_at": datetime.now(UTC).isoformat(),
+                                    "processing_time_sec": elapsed,
+                                }
+                            ],
+                        )
 
-                except Exception as e:
-                    logger.error(
-                        f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
-                    )
+                    except Exception as e:
+                        logger.error(
+                            f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
+                        )
 
-        group.create_task(run(firmware))
+            group.create_task(run(firmware))
 
 
 async def fetch_and_bake(
@@ -546,7 +546,6 @@ async def fetch_and_bake(
     code: str,
     product: str,
     semaphore: asyncio.Semaphore,
-    group: asyncio.TaskGroup,
 ):
     model = f"{product}{code}"
     response = await session.get(
@@ -555,7 +554,7 @@ async def fetch_and_bake(
 
     if response.status == 200:
         parsed_data = Response.from_dict(await response.json())
-        await bake_ipcc(parsed_data, session, semaphore, group)
+        await bake_ipcc(parsed_data, session, semaphore)
     else:
         logger.error(f"Failed to fetch data for {model}: {await response.text()}")
 
@@ -564,10 +563,9 @@ async def main():
     semaphore = asyncio.Semaphore(5)
 
     async with aiohttp.ClientSession() as session:
-        async with asyncio.TaskGroup() as group:
-            for product, codes in PRODUCT_CODES.items():
-                for code in codes:
-                    await fetch_and_bake(session, code, product, semaphore, group)
+        for product, codes in PRODUCT_CODES.items():
+            for code in codes:
+                await fetch_and_bake(session, code, product, semaphore)
 
 if __name__ == "__main__":
     asyncio.run(main())
