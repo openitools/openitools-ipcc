@@ -561,10 +561,13 @@ async def fetch_and_bake(
 
         await bake_ipcc(parsed_data, session, semaphore)
 
-        os.system("git switch -f  files")
-        os.system(f"git add -f {ident}")
+        os.system(f"git add {ident}")
+        os.system("git stash push")
+        os.system("git switch -f files")
+        os.system("git stash pop")
+        os.system("git diff --name-only --diff-filter=U | xargs git checkout --theirs -- && git add . ")
         os.system(f"git commit -m 'added {ident} ipcc files'")
-        os.system("git switch -f main")
+        os.system("git switch main")
     else:
         logger.error(f"Failed to fetch data for {model}: {await response.text()}")
 
