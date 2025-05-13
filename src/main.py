@@ -1,6 +1,7 @@
 import asyncio
 import glob
 import logging
+import os
 import shutil
 import subprocess
 import tarfile
@@ -394,7 +395,7 @@ async def extract_the_biggest_dmg(
                 if isinstance(decrypt_result, Error):
                     return Error(f"Unable to extract the dmg, error: {decrypt_result}")
 
-                # TODO: maybe we can just extract the new thing and move on and not re-running the entire function
+                # TODO: maybe we can just extract the new thing and move on and not re-run the entire function
                 return await extract_the_biggest_dmg(
                     dmg_file,
                     output,
@@ -555,6 +556,12 @@ async def fetch_and_bake(
     if response.status == 200:
         parsed_data = Response.from_dict(await response.json())
         await bake_ipcc(parsed_data, session, semaphore)
+
+        ident = parsed_data.firmwares[0].identifier
+        os.system("git switch -f  files")
+        os.system(f"git add -f {ident}")
+        os.system(f"git commit -m 'added {ident} ipcc files'")
+        os.system("git switch -f main")
     else:
         logger.error(f"Failed to fetch data for {model}: {await response.text()}")
 
