@@ -14,16 +14,49 @@ from models import Error, Firmware, Ok, Result
 J = TypeVar("J")
 
 
+def process_files_with_git(ident: str):
+    subprocess.run(["git", "add", ident], check=True)
+    subprocess.run(["git", "stash", "push"], check=True)
+    subprocess.run(["git", "switch", "-f", "files"], check=True)
+    subprocess.run(["git", "stash", "pop"], check=True)
+
+    conflicted = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=U"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+
+    for f in conflicted:
+        subprocess.run(["git", "checkout", "--theirs", f], check=True)
+
+    subprocess.run(["git", "add", "."], check=True)
+
+    subprocess.run(["git", "commit", "-m", f"added {ident} ipcc files"], check=True)
+
+    subprocess.run(["git", "push", "origin", "files"], check=True)
+    subprocess.run(["git", "switch", "main"], check=True)
+
+
 def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     command = f"git ls-tree -r --name-only {branch} -- {file_path}"
-    result = subprocess.run(command.split(), stdout=subprocess.PIPE, check=True, text=True)
+    try:
+        result = subprocess.run(
+            command.split(), stdout=subprocess.PIPE, check=True, text=True
+        )
+    except subprocess.SubprocessError:
+        subprocess.run(["git", "switch", "files"], check=True)
+        subprocess.run(["git", "switch", "main"], check=True)
+        return check_file_existence_in_branch(branch, file_path)
 
     return bool(result.stdout.strip())
 
 
 def copy_previous_metadata(ident: str) -> None:
     ignored_firms_file_path = f"{ident}/ignored_firmwares.json"
-    ignored_firms_exists = check_file_existence_in_branch("files", ignored_firms_file_path)
+    ignored_firms_exists = check_file_existence_in_branch(
+        "files", ignored_firms_file_path
+    )
 
     metadata_file_path = f"{ident}/metadata.json"
     metadata_exists = check_file_existence_in_branch("files", metadata_file_path)
@@ -33,14 +66,15 @@ def copy_previous_metadata(ident: str) -> None:
     Path(ident).mkdir(exist_ok=True)
 
     if ignored_firms_exists:
-
         with open(ignored_firms_file_path, "w") as f:
-            subprocess.run(command(ignored_firms_file_path).split(), stdout=f, check=True)
+            subprocess.run(
+                command(ignored_firms_file_path).split(), stdout=f, check=True
+            )
 
     if metadata_exists:
-
         with open(metadata_file_path, "w") as f:
             subprocess.run(command(metadata_file_path).split(), stdout=f, check=True)
+
 
 async def calculate_hash(file_path: Path) -> Tuple[str, str]:
     def hash(algo: Literal["sha1", "md5"]):
@@ -57,7 +91,10 @@ async def calculate_hash(file_path: Path) -> Tuple[str, str]:
 async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
     sha1, md5 = await calculate_hash(file_path)
 
-    return sha1.strip() == firmware.sha1sum.strip() or md5.strip() == firmware.md5sum.strip()
+    return (
+        sha1.strip() == firmware.sha1sum.strip()
+        or md5.strip() == firmware.md5sum.strip()
+    )
 
 
 async def put_metadata(

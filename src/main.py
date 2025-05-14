@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import glob
 import logging
@@ -17,8 +18,8 @@ from tqdm.asyncio import tqdm
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
 from utils import (bundles_glob, calculate_hash, compare_either_hash,
-                   copy_previous_metadata, delete_non_bundles, put_metadata,
-                   system_has_parent)
+                   copy_previous_metadata, delete_non_bundles,
+                   process_files_with_git, put_metadata, system_has_parent)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -442,11 +443,18 @@ async def bake_ipcc(
     response: Response,
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
-):
+) -> int:
+    """
+    it will return the amount of firmwares that are processed
+    """
+    processed_firmeares = 0
+
     async with asyncio.TaskGroup() as group:
         for firmware in response.firmwares:
 
             async def run(firmware: Firmware):
+                nonlocal processed_firmeares
+
                 async with semaphore:
                     try:
                         start_time = datetime.now(UTC)
@@ -468,7 +476,10 @@ async def bake_ipcc(
                         bundles_metadata_path = version_path / "bundles.json"
                         bundles_metadata_path.touch(exist_ok=True)
 
-                        if firmware.version in ignored_firmwares_metadata_path.read_text():
+                        if (
+                            firmware.version
+                            in ignored_firmwares_metadata_path.read_text()
+                        ):
                             return
 
                         if firmware.version in base_metadata_path.read_text():
@@ -491,7 +502,9 @@ async def bake_ipcc(
 
                         has_parent = extract_big_result.value
 
-                        bundles_folders = list(await bundles_glob(version_path, has_parent))
+                        bundles_folders = list(
+                            await bundles_glob(version_path, has_parent)
+                        )
 
                         new_bundles_folders = await delete_non_bundles(
                             version_path, bundles_folders, has_parent
@@ -535,6 +548,8 @@ async def bake_ipcc(
                             ],
                         )
 
+                        processed_firmeares += 1
+
                     except Exception as e:
                         logger.error(
                             f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
@@ -542,37 +557,58 @@ async def bake_ipcc(
 
             group.create_task(run(firmware))
 
+    return processed_firmeares
+
+
 async def fetch_and_bake(
     session: aiohttp.ClientSession,
     code: str,
     product: str,
     semaphore: asyncio.Semaphore,
+    git_mode: bool,
 ):
     model = f"{product}{code}"
     response = await session.get(
         f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
     )
 
-    if response.status == 200:
-        parsed_data = Response.from_dict(await response.json())
-        ident = parsed_data.firmwares[0].identifier
-        
+    if response.status != 200:
+        logger.error(f"Failed to fetch data for {model}: {await response.text()}")
+        return
+
+    parsed_data = Response.from_dict(await response.json())
+    if not parsed_data.firmwares:
+        logger.warning(f"No firmwares found for {model}")
+        return
+
+    ident = parsed_data.firmwares[0].identifier
+
+    if git_mode:
         copy_previous_metadata(ident)
 
-        await bake_ipcc(parsed_data, session, semaphore)
+    processed_count = await bake_ipcc(parsed_data, session, semaphore)
 
-        os.system(f"git add {ident}")
-        os.system("git stash push")
-        os.system("git switch -f files")
-        os.system("git stash pop")
-        os.system("git diff --name-only --diff-filter=U | xargs git checkout --theirs -- && git add . ")
-        os.system(f"git commit -m 'added {ident} ipcc files'")
-        os.system("git switch main")
-    else:
-        logger.error(f"Failed to fetch data for {model}: {await response.text()}")
+    if git_mode:
+        if processed_count > 0:
+            process_files_with_git(ident)
+        else:
+            shutil.rmtree(ident)
 
 
 async def main():
+    app = argparse.ArgumentParser("OpeniTools-IPCC")
+
+    app.add_argument(
+        "--git",
+        "-g",
+        help="Use it if you want to upload the files to Github (setup your git before)",
+        required=False,
+        default=False,
+        action="store_true",
+    )
+
+    git_mode: bool = app.parse_args().git
+
     # go back before 'src'
     os.chdir(__file__.removesuffix(f"/src/{__file__.split('/')[-1]}"))
 
@@ -581,7 +617,8 @@ async def main():
     async with aiohttp.ClientSession() as session:
         for product, codes in PRODUCT_CODES.items():
             for code in codes:
-                await fetch_and_bake(session, code, product, semaphore)
+                await fetch_and_bake(session, code, product, semaphore, git_mode)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
