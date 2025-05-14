@@ -447,13 +447,13 @@ async def bake_ipcc(
     """
     it will return the amount of firmwares that are processed
     """
-    processed_firmeares = 0
+    processed_count = 0
 
     async with asyncio.TaskGroup() as group:
         for firmware in response.firmwares:
 
             async def run(firmware: Firmware):
-                nonlocal processed_firmeares
+                nonlocal processed_count
 
                 async with semaphore:
                     try:
@@ -548,7 +548,7 @@ async def bake_ipcc(
                             ],
                         )
 
-                        processed_firmeares += 1
+                        processed_count += 1
 
                     except Exception as e:
                         logger.error(
@@ -557,7 +557,7 @@ async def bake_ipcc(
 
             group.create_task(run(firmware))
 
-    return processed_firmeares
+    return processed_count
 
 
 async def fetch_and_bake(

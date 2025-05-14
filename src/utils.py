@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, List, Literal, Optional, Tuple, TypeVar
+from typing import Callable, List, Literal, Optional, TypeVar
 
 from models import Error, Firmware, Ok, Result
 
@@ -76,25 +76,26 @@ def copy_previous_metadata(ident: str) -> None:
             subprocess.run(command(metadata_file_path).split(), stdout=f, check=True)
 
 
-async def calculate_hash(file_path: Path) -> Tuple[str, str]:
-    def hash(algo: Literal["sha1", "md5"]):
-        hash_func = getattr(hashlib, algo)()
-        with file_path.open("rb") as file:
-            for chunk in iter(lambda: file.read(4096), b""):
-                hash_func.update(chunk)
+async def calculate_hash(file_path: Path, algo: Literal["sha1", "md5"]) -> str:
+    hash_func = getattr(hashlib, algo)()
+    with file_path.open("rb") as file:
+        for chunk in iter(lambda: file.read(4096), b""):
+            hash_func.update(chunk)
 
-        return hash_func.hexdigest()
-
-    return (hash("sha1"), hash("md5"))
-
+    return hash_func.hexdigest()
 
 async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
-    sha1, md5 = await calculate_hash(file_path)
+    sha1 = await calculate_hash(file_path, "sha1")
 
-    return (
-        sha1.strip() == firmware.sha1sum.strip()
-        or md5.strip() == firmware.md5sum.strip()
-    )
+    if sha1.strip() == firmware.sha1sum.strip():
+        return True
+    
+    md5 = await calculate_hash(file_path, "md5")
+
+    if md5.strip() == firmware.md5sum.strip():
+        return True
+
+    return False
 
 
 async def put_metadata(
