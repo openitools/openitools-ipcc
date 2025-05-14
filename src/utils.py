@@ -18,7 +18,9 @@ def process_files_with_git(ident: str):
     subprocess.run(["git", "add", ident], check=True)
     subprocess.run(["git", "stash", "push"], check=True)
     subprocess.run(["git", "switch", "-f", "files"], check=True)
-    subprocess.run(["git", "stash", "pop"], check=True)
+
+    # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
+    subprocess.run(["git", "stash", "pop"], check=False)
 
     conflicted = subprocess.run(
         ["git", "diff", "--name-only", "--diff-filter=U"],
