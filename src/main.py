@@ -425,7 +425,7 @@ async def tar_and_hash_bundles(
         with tarfile.open(bundle_tar, "w", format=tarfile.PAX_FORMAT) as tar:
             tar.add(bundle, arcname=bundle.name, recursive=True)
 
-        sha1, _ = await calculate_hash(bundle_tar)
+        sha1 = await calculate_hash(bundle_tar, "sha1")
         output_bundles.append(
             {
                 "bundle_name": bundle_tar.stem,
