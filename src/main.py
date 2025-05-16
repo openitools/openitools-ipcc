@@ -444,27 +444,29 @@ async def bake_ipcc(
     session: aiohttp.ClientSession,
 ) -> bool:
     """
-    it will return the amount of firmwares that are processed
+    it will return  whether the ipcc's are created or not
     """
+
+    base_path = Path(firmware.identifier)
+    base_path.mkdir(exist_ok=True)
+
+    version_path = base_path / firmware.version
+    version_path.mkdir(exist_ok=True)
+
+    base_metadata_path = base_path / "metadata.json"
+    base_metadata_path.touch(exist_ok=True)
+
+    ignored_firmwares_metadata_path = (
+            base_path / "ignored_firmwares.json"
+            )
+    ignored_firmwares_metadata_path.touch(exist_ok=True)
+
+    bundles_metadata_path = version_path / "bundles.json"
+    bundles_metadata_path.touch(exist_ok=True)
+
     try:
         start_time = datetime.now(UTC)
 
-        base_path = Path(firmware.identifier)
-        base_path.mkdir(exist_ok=True)
-
-        version_path = base_path / firmware.version
-        version_path.mkdir(exist_ok=True)
-
-        base_metadata_path = base_path / "metadata.json"
-        base_metadata_path.touch(exist_ok=True)
-
-        ignored_firmwares_metadata_path = (
-            base_path / "ignored_firmwares.json"
-        )
-        ignored_firmwares_metadata_path.touch(exist_ok=True)
-
-        bundles_metadata_path = version_path / "bundles.json"
-        bundles_metadata_path.touch(exist_ok=True)
 
         if (
             firmware.version
@@ -541,6 +543,8 @@ async def bake_ipcc(
         return True
 
     except Exception as e:
+        shutil.rmtree(version_path)
+
         logger.error(
             f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
         )
@@ -578,17 +582,16 @@ async def fetch_and_bake(
             copy_previous_metadata(ident)
 
         processed_count = 0
-
         for firmware in parsed_data.firmwares:
             if await bake_ipcc(firmware, session):
-                processed_count += 1
 
-        if git_mode:
-            if processed_count > 0:
-                async with git_uploading_semaphore:
-                    process_files_with_git(ident)
-            else:
-                shutil.rmtree(ident)
+                processed_count += 1
+                if git_mode:
+                    async with git_uploading_semaphore:
+                        process_files_with_git(ident)
+
+        if processed_count == 0:
+            shutil.rmtree(ident)
 
 async def main():
     app = argparse.ArgumentParser("OpeniTools-IPCC")
