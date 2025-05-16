@@ -19,7 +19,8 @@ from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
 from utils import (bundles_glob, calculate_hash, compare_either_hash,
                    copy_previous_metadata, delete_non_bundles,
-                   process_files_with_git, put_metadata, system_has_parent)
+                   process_files_with_git, put_metadata, run_command,
+                   system_has_parent)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -195,25 +196,16 @@ async def decrypt_dmg_aea(
         deb_path = Path("ipsw.deb")
 
         if not deb_path.exists():
-            subprocess.run(
-                [
-                    "wget",
-                    "https://github.com/blacktop/ipsw/releases/download/v3.1.544/ipsw_3.1.544_linux_x86_64.deb",
-                    "--output-document",
-                    str(deb_path),
-                ],
-                check=True,
+            await run_command(
+                    f"wget https://github.com/blacktop/ipsw/releases/download/v3.1.544/ipsw_3.1.544_linux_x86_64.deb --output-document {deb_path}"
             )
 
-        subprocess.run(["sudo", "dpkg", "-i", str(deb_path)], check=True)
+        await run_command(f"sudo dpkg -i {deb_path}")
         deb_path.unlink(missing_ok=True)
 
     try:
-        subprocess.run(
-            ["ipsw", "extract", "--fcs-key", str(ipsw_file), "--output", str(output)],
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
+        await run_command(
+            f"ipsw extract --fcs-key {ipsw_file} --output {output}"
         )
     except subprocess.CalledProcessError as e:
         return Error(f"Extraction failed: {e.stderr}")
@@ -234,20 +226,8 @@ async def decrypt_dmg_aea(
 
     try:
         logger.info("Decrypting")
-        subprocess.run(
-            [
-                "ipsw",
-                "fw",
-                "aea",
-                "--pem",
-                str(pem_file),
-                str(dmg_file),
-                "--output",
-                str(output),
-            ],
-            text=True,
-            stderr=subprocess.PIPE,
-            check=True,
+        await run_command(
+                f"ipsw fw aea --pem {pem_file} {dmg_file} --output {output}"
         )
     except subprocess.CalledProcessError as e:
         return Error(f"Decryption failed: {e.stderr}")
@@ -371,22 +351,21 @@ async def extract_the_biggest_dmg(
             f"{'*/' if has_parent.value else ''}System/Library/Carrier Bundles/*",  # where all the bundles are
         ]
 
-        decryption_result = subprocess.run(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        decryption_result = await run_command(
+            command 
         )
 
-        stdout = decryption_result.stdout
-        stderr = decryption_result.stderr
+        stdout, stderr, returncode = decryption_result
 
         logger.debug(f"7z stdout: {stdout}")
         logger.debug(f"7z stderr: {stderr}")
 
-        if decryption_result.returncode != 0:
+        if returncode != 0:
             error_msg = f"Couldn't extract {dmg_file}, error: {stderr}"
             logger.error(error_msg)
 
             # usually with old firmwares, we must then decrypt it using a special key
-            if "Cannot open the file as [Dmg] archive" in str(stderr):
+            if "Cannot open the file as [Dmg] archive" in stderr:
                 decrypt_result = await decrypt_dmg(
                     dmg_file,
                     biggest_dmg_file_path,
@@ -495,10 +474,10 @@ async def bake_ipcc(
         has_parent = extract_big_result.value
 
         bundles_folders = list(
-            await bundles_glob(version_path, has_parent)
+            bundles_glob(version_path, has_parent)
         )
 
-        new_bundles_folders = await delete_non_bundles(
+        new_bundles_folders = delete_non_bundles(
             version_path, bundles_folders, has_parent
         )
 
@@ -579,7 +558,7 @@ async def fetch_and_bake(
         ident = parsed_data.firmwares[0].identifier
 
         if git_mode:
-            copy_previous_metadata(ident)
+            await copy_previous_metadata(ident)
 
         processed_count = 0
         for firmware in parsed_data.firmwares:
@@ -588,7 +567,7 @@ async def fetch_and_bake(
                 processed_count += 1
                 if git_mode:
                     async with git_uploading_semaphore:
-                        process_files_with_git(ident)
+                        await process_files_with_git(ident)
 
         if processed_count == 0:
             shutil.rmtree(ident)

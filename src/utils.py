@@ -2,59 +2,77 @@ import asyncio
 import glob
 import hashlib
 import json
+import shlex
 import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, List, Literal, Optional, TypeVar
+from typing import IO, Any, Callable, List, Literal, Optional, TypeVar, Union
+
+import aiofiles
 
 from models import Error, Firmware, Ok, Result
 
 # for json writing callbacks
 J = TypeVar("J")
 
+async def run_command(command: Union[str, list[str]], check: bool = True, stdout: int | IO[Any] = asyncio.subprocess.PIPE) -> tuple[str, str, Optional[int]]:
 
-def process_files_with_git(ident: str):
-    subprocess.run(["git", "add", ident], check=True)
-    subprocess.run(["git", "stash", "push"], check=True)
-    subprocess.run(["git", "switch", "-f", "files"], check=True)
+    if isinstance(command, str):
+        command = shlex.split(command)
+
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=stdout,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    result_stdout, result_stderr = await proc.communicate()
+
+    if proc.returncode != 0 and check:
+        raise RuntimeError(f"Command `{command}` failed with code {proc.returncode}:\n{result_stderr.decode()}")
+
+    return result_stdout.decode(), result_stderr.decode(), proc.returncode
+
+async def process_files_with_git(ident: str):
+    await run_command(f"git add {ident}")
+    await run_command("git stash push")
+
+    await run_command("git switch -f files")
 
     # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
-    subprocess.run(["git", "stash", "pop"], check=False)
+    await run_command("git stash pop", check=False)
 
-    conflicted = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=U"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.splitlines()
+    conflicted = (await run_command(
+        "git diff --name-only --diff-filter=U",
+    ))[0].splitlines()
 
     for f in conflicted:
-        subprocess.run(["git", "checkout", "--theirs", f], check=True)
+        await run_command(f"git checkout --theirs {f}")
 
-    subprocess.run(["git", "add", "."], check=True)
-
-    subprocess.run(["git", "commit", "-m", f"added {ident} ipcc files"], check=True)
-
-    subprocess.run(["git", "push", "origin", "files"], check=True)
-    subprocess.run(["git", "switch", "main"], check=True)
+    await run_command("git add .")
 
 
-def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
-    command = f"git ls-tree -r --name-only {branch} -- {file_path}"
+    await run_command(f"git commit -m 'added {ident} ipcc files'")
+
+    await run_command("git push origin files")
+    await run_command("git switch main")
+
+
+async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     try:
-        result = subprocess.run(
-            command.split(), stdout=subprocess.PIPE, check=True, text=True
+        result = await run_command(
+            f"git ls-tree -r --name-only {branch} -- {file_path}"
         )
     except subprocess.SubprocessError:
-        subprocess.run(["git", "switch", "files"], check=True)
-        subprocess.run(["git", "switch", "main"], check=True)
-        return check_file_existence_in_branch(branch, file_path)
+        await run_command("git switch files")
+        await run_command("git switch main")
+        return await check_file_existence_in_branch(branch, file_path)
 
-    return bool(result.stdout.strip())
+    return bool(result[0].strip())
 
 
-def copy_previous_metadata(ident: str) -> None:
+async def copy_previous_metadata(ident: str) -> None:
     ignored_firms_file_path = f"{ident}/ignored_firmwares.json"
     ignored_firms_exists = check_file_existence_in_branch(
         "files", ignored_firms_file_path
@@ -69,19 +87,25 @@ def copy_previous_metadata(ident: str) -> None:
 
     if ignored_firms_exists:
         with open(ignored_firms_file_path, "w") as f:
-            subprocess.run(
-                command(ignored_firms_file_path).split(), stdout=f, check=True
+            await run_command(
+                command(ignored_firms_file_path), stdout=f
             )
 
     if metadata_exists:
         with open(metadata_file_path, "w") as f:
-            subprocess.run(command(metadata_file_path).split(), stdout=f, check=True)
+            await run_command(
+                command(metadata_file_path), stdout=f
+            )
 
 
 async def calculate_hash(file_path: Path, algo: Literal["sha1", "md5"]) -> str:
     hash_func = getattr(hashlib, algo)()
-    with file_path.open("rb") as file:
-        for chunk in iter(lambda: file.read(4096), b""):
+    
+    async with aiofiles.open(file_path, "rb") as f:
+        while True:
+            chunk = await f.read(4096)
+            if not chunk:
+                break
             hash_func.update(chunk)
 
     return hash_func.hexdigest()
@@ -105,16 +129,28 @@ async def put_metadata(
 ) -> Result[None, str]:
     """Read & update JSON metadata using a callback."""
     try:
-        metadata = json.loads(metadata_path.read_text() or "{}")
+        async with aiofiles.open(metadata_path, "r") as f:
+            try:
+                text = await f.read()
+                metadata = json.loads(text) if text.strip() else {}
+            except FileNotFoundError:
+                metadata = {}
+
         metadata[key] = callback(metadata.get(key))
         metadata["updated_at"] = datetime.now(UTC).isoformat()
-        metadata_path.write_text(json.dumps(metadata, indent=4))
+
+        async with aiofiles.open(metadata_path, "w") as f:
+            await f.write(json.dumps(metadata, indent=4))
+
+        return Ok(None)
+
     except json.JSONDecodeError as e:
         return Error(f"Invalid JSON: {e}")
-    return Ok(None)
+    except Exception as e:
+        return Error(f"Unexpected error: {e}")
 
 
-async def bundles_glob(path: Path, has_parent: bool = False) -> List[Path]:
+def bundles_glob(path: Path, has_parent: bool = False) -> List[Path]:
     return list(
         map(
             lambda s: Path(s).resolve(),
@@ -125,7 +161,7 @@ async def bundles_glob(path: Path, has_parent: bool = False) -> List[Path]:
     )
 
 
-async def delete_non_bundles(
+def delete_non_bundles(
     base_path: Path, bundles: List[Path], has_parent: bool = False
 ) -> Result[List[Path], str]:
     try:

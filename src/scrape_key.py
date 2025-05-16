@@ -1,4 +1,3 @@
-import asyncio
 import plistlib
 import zipfile
 from pathlib import Path
@@ -7,6 +6,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from models import Error, Ok, Result
+from utils import run_command
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
@@ -79,21 +79,13 @@ async def decrypt_dmg(
 async def _extract_encrypted_dmg(dmg_file: Path, key: str) -> Result[None, str]:
     temp_file = dmg_file.parent / (dmg_file.name + ".temp")
 
-    process = await asyncio.create_subprocess_exec(
-        "vfdecrypt",
-        "-i",
-        str(dmg_file),
-        "-k",
-        key,
-        "-o",
-        str(temp_file),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    process = await run_command(
+        f"vfdecrypt -i {dmg_file} -k {key} -o {temp_file}",
     )
-    _, stderr = await process.communicate()
+    _, stderr, returncode = process
 
-    if process.returncode != 0:
-        return Error(str(stderr.strip()))
+    if returncode != 0:
+        return Error(stderr.strip())
 
     # Delete the old file and rename the temporary file to the original name
     try:
