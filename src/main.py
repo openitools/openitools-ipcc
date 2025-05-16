@@ -584,12 +584,23 @@ async def main():
         action="store_true",
     )
 
-    git_mode: bool = app.parse_args().git
+    app.add_argument(
+        "-j",
+        "--concurrent-jobs",
+        help="The number of concurrent firmware extraction jobs (default: 3)",
+        required=False,
+        default=3,
+        type=int
+    )
+
+    args = app.parse_args()
+
+    git_mode: bool = args.git
 
     # go back before 'src'
     os.chdir(Path(__file__).resolve().parents[1])
 
-    devices_semaphore = asyncio.Semaphore(3)
+    devices_semaphore = asyncio.Semaphore(args.concurrent_jobs)
 
     # only one can be uploading to git
     git_uploading_semaphore = asyncio.Semaphore(1)
