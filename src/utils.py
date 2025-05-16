@@ -103,7 +103,7 @@ async def calculate_hash(file_path: Path, algo: Literal["sha1", "md5"]) -> str:
     
     async with aiofiles.open(file_path, "rb") as f:
         while True:
-            chunk = await f.read(4096)
+            chunk = await f.read(1024 * 10000)
             if not chunk:
                 break
             hash_func.update(chunk)
