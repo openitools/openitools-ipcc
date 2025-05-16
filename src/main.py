@@ -440,160 +440,155 @@ async def tar_and_hash_bundles(
 
 
 async def bake_ipcc(
-    response: Response,
+    firmware: Firmware,
     session: aiohttp.ClientSession,
-    semaphore: asyncio.Semaphore,
-) -> int:
+) -> bool:
     """
     it will return the amount of firmwares that are processed
     """
-    processed_count = 0
+    try:
+        start_time = datetime.now(UTC)
 
-    async with asyncio.TaskGroup() as group:
-        for firmware in response.firmwares:
+        base_path = Path(firmware.identifier)
+        base_path.mkdir(exist_ok=True)
 
-            async def run(firmware: Firmware):
-                nonlocal processed_count
+        version_path = base_path / firmware.version
+        version_path.mkdir(exist_ok=True)
 
-                async with semaphore:
-                    try:
-                        start_time = datetime.now(UTC)
+        base_metadata_path = base_path / "metadata.json"
+        base_metadata_path.touch(exist_ok=True)
 
-                        base_path = Path(firmware.identifier)
-                        base_path.mkdir(exist_ok=True)
+        ignored_firmwares_metadata_path = (
+            base_path / "ignored_firmwares.json"
+        )
+        ignored_firmwares_metadata_path.touch(exist_ok=True)
 
-                        version_path = base_path / firmware.version
-                        version_path.mkdir(exist_ok=True)
+        bundles_metadata_path = version_path / "bundles.json"
+        bundles_metadata_path.touch(exist_ok=True)
 
-                        base_metadata_path = base_path / "metadata.json"
-                        base_metadata_path.touch(exist_ok=True)
+        if (
+            firmware.version
+            in ignored_firmwares_metadata_path.read_text()
+        ):
+            return False
 
-                        ignored_firmwares_metadata_path = (
-                            base_path / "ignored_firmwares.json"
-                        )
-                        ignored_firmwares_metadata_path.touch(exist_ok=True)
+        if firmware.version in base_metadata_path.read_text():
+            return False
 
-                        bundles_metadata_path = version_path / "bundles.json"
-                        bundles_metadata_path.touch(exist_ok=True)
+        ipsw_file = await download_file(firmware, version_path, session)
 
-                        if (
-                            firmware.version
-                            in ignored_firmwares_metadata_path.read_text()
-                        ):
-                            return
+        if isinstance(ipsw_file, Error):
+            raise RuntimeError(ipsw_file)
 
-                        if firmware.version in base_metadata_path.read_text():
-                            return
+        extract_big_result = await extract_the_biggest_dmg(
+            ipsw_file.value,
+            version_path,
+            firmware,
+            ignored_firmwares_metadata_path,
+        )
 
-                        ipsw_file = await download_file(firmware, version_path, session)
+        if isinstance(extract_big_result, Error):
+            raise RuntimeError(extract_big_result)
 
-                        if isinstance(ipsw_file, Error):
-                            raise RuntimeError(ipsw_file)
+        has_parent = extract_big_result.value
 
-                        extract_big_result = await extract_the_biggest_dmg(
-                            ipsw_file.value,
-                            version_path,
-                            firmware,
-                            ignored_firmwares_metadata_path,
-                        )
+        bundles_folders = list(
+            await bundles_glob(version_path, has_parent)
+        )
 
-                        if isinstance(extract_big_result, Error):
-                            raise RuntimeError(extract_big_result)
+        new_bundles_folders = await delete_non_bundles(
+            version_path, bundles_folders, has_parent
+        )
 
-                        has_parent = extract_big_result.value
+        if isinstance(new_bundles_folders, Error):
+            raise RuntimeError(new_bundles_folders)
 
-                        bundles_folders = list(
-                            await bundles_glob(version_path, has_parent)
-                        )
+        tarred_with_hash_bundles = await tar_and_hash_bundles(
+            new_bundles_folders.value
+        )
 
-                        new_bundles_folders = await delete_non_bundles(
-                            version_path, bundles_folders, has_parent
-                        )
+        # we don't need the .bundle folder after tarring it (compress it to a .tar)
+        for path in new_bundles_folders.value:
+            shutil.rmtree(path)
 
-                        if isinstance(new_bundles_folders, Error):
-                            raise RuntimeError(new_bundles_folders)
+        if isinstance(tarred_with_hash_bundles, Error):
+            raise RuntimeError(tarred_with_hash_bundles)
 
-                        tarred_with_hash_bundles = await tar_and_hash_bundles(
-                            new_bundles_folders.value
-                        )
+        tarred_bundles_value = tarred_with_hash_bundles.value
 
-                        # we don't need the .bundle folder after tarring it (compress it to a .tar)
-                        for path in new_bundles_folders.value:
-                            shutil.rmtree(path)
+        await put_metadata(
+            bundles_metadata_path,
+            "bundles",
+            lambda acc: (acc or []) + tarred_bundles_value,
+        )
 
-                        if isinstance(tarred_with_hash_bundles, Error):
-                            raise RuntimeError(tarred_with_hash_bundles)
+        elapsed = (datetime.now(UTC) - start_time).total_seconds()
 
-                        tarred_bundles_value = tarred_with_hash_bundles.value
+        await put_metadata(
+            base_metadata_path,
+            "fw",
+            lambda acc: (acc or [])
+            + [
+                {
+                    "version": firmware.version,
+                    "buildid": firmware.buildid,
+                    "downloaded_at": datetime.now(UTC).isoformat(),
+                    "processing_time_sec": elapsed,
+                }
+            ],
+        )
 
-                        await put_metadata(
-                            bundles_metadata_path,
-                            "bundles",
-                            lambda acc: (acc or []) + tarred_bundles_value,
-                        )
+        return True
 
-                        elapsed = (datetime.now(UTC) - start_time).total_seconds()
+    except Exception as e:
+        logger.error(
+            f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
+        )
 
-                        await put_metadata(
-                            base_metadata_path,
-                            "fw",
-                            lambda acc: (acc or [])
-                            + [
-                                {
-                                    "version": firmware.version,
-                                    "buildid": firmware.buildid,
-                                    "downloaded_at": datetime.now(UTC).isoformat(),
-                                    "processing_time_sec": elapsed,
-                                }
-                            ],
-                        )
-
-                        processed_count += 1
-
-                    except Exception as e:
-                        logger.error(
-                            f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
-                        )
-
-            group.create_task(run(firmware))
-
-    return processed_count
+    return False
 
 
 async def fetch_and_bake(
     session: aiohttp.ClientSession,
     code: str,
     product: str,
-    semaphore: asyncio.Semaphore,
+    devices_semaphore: asyncio.Semaphore,
+    git_uploading_semaphore: asyncio.Semaphore,
     git_mode: bool,
 ):
-    model = f"{product}{code}"
-    response = await session.get(
-        f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
-    )
+    async with devices_semaphore:
 
-    if response.status != 200:
-        logger.error(f"Failed to fetch data for {model}: {await response.text()}")
-        return
+        model = f"{product}{code}"
+        response = await session.get(
+            f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
+        )
 
-    parsed_data = Response.from_dict(await response.json())
-    if not parsed_data.firmwares:
-        logger.warning(f"No firmwares found for {model}")
-        return
+        if response.status != 200:
+            logger.error(f"Failed to fetch data for {model}: {await response.text()}")
+            return
 
-    ident = parsed_data.firmwares[0].identifier
+        parsed_data = Response.from_dict(await response.json())
+        if not parsed_data.firmwares:
+            logger.warning(f"No firmwares found for {model}")
+            return
 
-    if git_mode:
-        copy_previous_metadata(ident)
+        ident = parsed_data.firmwares[0].identifier
 
-    processed_count = await bake_ipcc(parsed_data, session, semaphore)
+        if git_mode:
+            copy_previous_metadata(ident)
 
-    if git_mode:
-        if processed_count > 0:
-            process_files_with_git(ident)
-        else:
-            shutil.rmtree(ident)
+        processed_count = 0
 
+        for firmware in parsed_data.firmwares:
+            if await bake_ipcc(firmware, session):
+                processed_count += 1
+
+        if git_mode:
+            if processed_count > 0:
+                async with git_uploading_semaphore:
+                    process_files_with_git(ident)
+            else:
+                shutil.rmtree(ident)
 
 async def main():
     app = argparse.ArgumentParser("OpeniTools-IPCC")
@@ -610,14 +605,18 @@ async def main():
     git_mode: bool = app.parse_args().git
 
     # go back before 'src'
-    os.chdir(__file__.removesuffix(f"/src/{__file__.split('/')[-1]}"))
+    os.chdir(Path(__file__).resolve().parents[1])
 
-    semaphore = asyncio.Semaphore(5)
+    devices_semaphore = asyncio.Semaphore(5)
+
+    # only one can be uploading to git
+    git_uploading_semaphore = asyncio.Semaphore(1)
 
     async with aiohttp.ClientSession() as session:
-        for product, codes in PRODUCT_CODES.items():
-            for code in codes:
-                await fetch_and_bake(session, code, product, semaphore, git_mode)
+        async with asyncio.TaskGroup() as main_group:
+            for product, codes in PRODUCT_CODES.items():
+                for code in codes:
+                    main_group.create_task(fetch_and_bake(session, code, product, devices_semaphore, git_uploading_semaphore, git_mode))
 
 
 if __name__ == "__main__":
