@@ -74,12 +74,12 @@ async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
 
 async def copy_previous_metadata(ident: str) -> None:
     ignored_firms_file_path = f"{ident}/ignored_firmwares.json"
-    ignored_firms_exists = check_file_existence_in_branch(
+    ignored_firms_exists = await check_file_existence_in_branch(
         "files", ignored_firms_file_path
     )
 
     metadata_file_path = f"{ident}/metadata.json"
-    metadata_exists = check_file_existence_in_branch("files", metadata_file_path)
+    metadata_exists = await check_file_existence_in_branch("files", metadata_file_path)
 
     command = lambda file_path: f"git show files:{file_path}"
 
