@@ -37,7 +37,7 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
 
     return result_stdout, result_stderr, proc.returncode
 
-async def process_files_with_git(ident: str):
+async def process_files_with_git(ident: str, version: str):
     await run_command(f"git add {ident}")
     await run_command("git stash push")
 
@@ -56,7 +56,7 @@ async def process_files_with_git(ident: str):
     await run_command("git add .")
 
 
-    await run_command(f"git commit -m 'added {ident} ipcc files'")
+    await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
 
     await run_command("git push origin files")
     await run_command("git switch main")

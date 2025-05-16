@@ -567,7 +567,7 @@ async def fetch_and_bake(
                 processed_count += 1
                 if git_mode:
                     async with git_uploading_semaphore:
-                        await process_files_with_git(ident)
+                        await process_files_with_git(ident, firmware.version)
 
         if processed_count == 0:
             shutil.rmtree(ident)
