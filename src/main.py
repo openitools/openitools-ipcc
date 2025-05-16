@@ -607,7 +607,7 @@ async def main():
     # go back before 'src'
     os.chdir(Path(__file__).resolve().parents[1])
 
-    devices_semaphore = asyncio.Semaphore(5)
+    devices_semaphore = asyncio.Semaphore(3)
 
     # only one can be uploading to git
     git_uploading_semaphore = asyncio.Semaphore(1)
