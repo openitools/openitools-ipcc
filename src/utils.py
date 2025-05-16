@@ -29,10 +29,13 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
 
     result_stdout, result_stderr = await proc.communicate()
 
-    if proc.returncode != 0 and check:
-        raise RuntimeError(f"Command `{command}` failed with code {proc.returncode}:\n{result_stderr.decode()}")
+    result_stdout = result_stdout.decode() if isinstance(result_stdout, (bytes, bytearray)) else ""
+    result_stderr = result_stderr.decode() if isinstance(result_stderr, (bytes, bytearray)) else ""
 
-    return result_stdout.decode(), result_stderr.decode(), proc.returncode
+    if proc.returncode != 0 and check:
+        raise RuntimeError(f"Command `{command}` failed with code {proc.returncode}:\n{result_stderr}")
+
+    return result_stdout, result_stderr, proc.returncode
 
 async def process_files_with_git(ident: str):
     await run_command(f"git add {ident}")
