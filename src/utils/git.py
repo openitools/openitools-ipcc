@@ -69,8 +69,12 @@ async def copy_previous_metadata(ident: str) -> None:
         async with aiofiles.open(ignored_firms_file_path, "w") as f:
             await f.write(stdout)
 
+            logger.debug(f"{ignored_firms_file_path} content: '{await f.read()}'")
+
 
     if await check_file_existence_in_branch("files", metadata_file_path):
         stdout, _, _ = await run_command(command(metadata_file_path))
         async with aiofiles.open(metadata_file_path, "w") as f:
             await f.write(stdout)
+
+            logger.debug(f"{metadata_file_path} content: '{await f.read()}'")

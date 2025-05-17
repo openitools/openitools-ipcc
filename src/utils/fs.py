@@ -63,17 +63,26 @@ async def put_metadata(
     metadata_path: Path, key: str, callback: Callable[[Optional[J]], J]
 ) -> Result[None, str]:
     """Read & update JSON metadata using a callback."""
+    logger.info(f"updating {metadata_path}")
     try:
         try:
             async with aiofiles.open(metadata_path, "r") as f:
                     text = await f.read()
+
+                    logger.debug(f"{metadata_path} content: '{text}'")
                     metadata = json.loads(text) if text.strip() else {}
+
 
         except FileNotFoundError:
             metadata = {}
 
+        logger.debug(f"before: {metadata = }")
+
         metadata[key] = callback(metadata.get(key))
         metadata["updated_at"] = datetime.now(UTC).isoformat()
+
+
+        logger.debug(f"after: {metadata = }")
 
         async with aiofiles.open(metadata_path, "w") as f:
             await f.write(json.dumps(metadata, indent=4))
