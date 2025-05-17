@@ -2,6 +2,7 @@ import asyncio
 import glob
 import hashlib
 import json
+import logging
 import shlex
 import shutil
 from datetime import UTC, datetime
@@ -11,6 +12,8 @@ from typing import IO, Any, Callable, List, Literal, Optional, TypeVar, Union
 import aiofiles
 
 from models import Error, Firmware, Ok, Result
+
+logger = logging.getLogger()
 
 # for json writing callbacks
 J = TypeVar("J")
@@ -40,29 +43,54 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
     return result_stdout, result_stderr, proc.returncode
 
 async def process_files_with_git(ident: str, version: str):
-    async with git_lock:
-        await run_command(f"git add {ident}")
-        await run_command("git stash push")
+    logger.debug("waiting for the git lock")
 
-        await run_command("git switch -f files")
+    async with git_lock:
+        out, err, _ = await run_command(f"git add {ident}")
+
+        logger.debug(f"git add {ident} output: \n stdout: {out} \nstderr: {err}")
+
+        out, err, _ = await run_command("git stash push")
+
+        logger.debug(f"git stash push output: \n stdout: {out} \nstderr: {err}")
+
+        out, err, _ = await run_command("git switch -f files")
+
+        logger.debug(f"git switch -f files output: \n stdout: {out} \nstderr: {err}")
 
         # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
-        await run_command("git stash pop", check=False)
+        out, err, _ = await run_command("git stash pop", check=False)
 
-        out, _ , _ = await run_command(
+
+        logger.debug(f"git stash pop output: \n stdout: {out} \nstderr: {err}")
+
+        out, err , _ = await run_command(
             "git diff --name-only --diff-filter=U",
         )
+
+        logger.debug(f"git diff output: \n stdout: {out} \nstderr: {err}")
 
         for path in out.splitlines():
             await run_command(f"git checkout --theirs {path}")
 
-        await run_command("git add .")
+        out, err, _ = await run_command("git add .")
+
+        logger.debug(f"git add {ident} output: \n stdout: {out} \nstderr: {err}")
 
 
-        await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
 
-        await run_command("git push origin files")
-        await run_command("git switch main")
+        out, err, _ = await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
+
+
+        logger.debug(f"git add . output: \n stdout: {out} \nstderr: {err}")
+
+        out, err, _ = await run_command("git push origin files")
+
+
+        logger.debug(f"git push origin files output: \n stdout: {out} \nstderr: {err}")
+        out, err, _ = await run_command("git switch main")
+
+        logger.debug(f"git switch main output: \n stdout: {out} \nstderr: {err}")
 
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
