@@ -506,9 +506,6 @@ async def fetch_and_bake(
 
         ident = parsed_data.firmwares[0].identifier
 
-        if git_mode:
-            await run_command("git switch files")
-
         processed_count = 0
         for firmware in parsed_data.firmwares:
             # if git_mode:
