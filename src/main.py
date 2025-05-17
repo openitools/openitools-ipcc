@@ -506,11 +506,11 @@ async def fetch_and_bake(
 
         ident = parsed_data.firmwares[0].identifier
 
-        if git_mode:
-            await copy_previous_metadata(ident)
-
         processed_count = 0
         for firmware in parsed_data.firmwares:
+            if git_mode:
+                await copy_previous_metadata(ident)
+
             if await bake_ipcc(firmware, session):
 
                 processed_count += 1
