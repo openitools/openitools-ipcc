@@ -134,6 +134,21 @@ PRODUCT_CODES: Dict[str, List[str]] = {
 }
 
 
+async def is_file_ready(file_path: Path, firmware: Firmware) -> bool:
+    """
+    returns True if the file exists and the hash matches, otherwise remove it and return False
+    """
+    
+    if file_path.exists():
+        if await compare_either_hash(file_path, firmware):
+            logger.info("ipsw file already exists, using it")
+            return True
+
+        logger.info("Detected a corrupted file, redownloading")
+        file_path.unlink()
+
+    return False
+
 async def download_file(
     firmware: Firmware, version_folder: Path, session: aiohttp.ClientSession
 ) -> Result[Path, str]:
@@ -141,15 +156,10 @@ async def download_file(
     Downloads the firmware and returns the path to the downloaded .ipsw file
     """
     file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
-
-    if file_path.exists():
-        if await compare_either_hash(file_path, firmware):
-            logger.info("ipsw file already exists, using it")
-            return Ok(file_path)
-
-        logger.info("Detected a corrupted file, redownloading")
-        file_path.unlink()
-
+    
+    if is_file_ready(file_path, firmware):
+        return Ok(file_path)
+    
     try:
         async with session.get(
             firmware.url, timeout=aiohttp.ClientTimeout(1000)
