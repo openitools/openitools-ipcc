@@ -16,10 +16,12 @@ from tqdm.asyncio import tqdm
 
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
-from utils import (bundles_glob, calculate_hash, compare_either_hash,
-                   copy_previous_metadata, delete_non_bundles,
-                   process_files_with_git, put_metadata, run_command,
-                   system_has_parent)
+from utils.download import download_file
+from utils.fs import (bundles_glob, delete_non_bundles, put_metadata,
+                      system_has_parent)
+from utils.git import copy_previous_metadata, process_files_with_git
+from utils.hash import calculate_hash
+from utils.shell import run_command
 
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper()),
@@ -132,67 +134,6 @@ PRODUCT_CODES: Dict[str, List[str]] = {
         "2,1",
     ],
 }
-
-
-async def is_file_ready(file_path: Path, firmware: Firmware) -> bool:
-    """
-    returns True if the file exists and the hash matches, otherwise remove it and return False
-    """
-    
-    if file_path.exists():
-        if await compare_either_hash(file_path, firmware):
-            logger.info("ipsw file already exists, using it")
-            return True
-
-        logger.info("Detected a corrupted file, redownloading")
-        file_path.unlink()
-
-    return False
-
-async def download_file(
-    firmware: Firmware, version_folder: Path, session: aiohttp.ClientSession
-) -> Result[Path, str]:
-    """
-    Downloads the firmware and returns the path to the downloaded .ipsw file
-    """
-    file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
-    
-    if await is_file_ready(file_path, firmware):
-        return Ok(file_path)
-    
-    try:
-        async with session.get(
-            firmware.url, timeout=aiohttp.ClientTimeout(1000)
-        ) as response:
-            if response.status != 200:
-                return Error(
-                    f"Failed to download {firmware.identifier}: {response.status} {response.reason}"
-                )
-
-            total_size = int(response.headers.get("Content-Length", 0))
-
-            with (
-                open(file_path, "wb") as file,
-                tqdm(
-                    total=total_size, unit="B", unit_scale=True, desc=str(file_path)
-                ) as progress,
-            ):
-                async for chunk in response.content.iter_chunked(8192):
-                    file.write(chunk)
-                    progress.update(len(chunk))
-
-    except aiohttp.ClientError as e:
-        file_path.unlink(missing_ok=True)
-        return Error(f"Network error: {e}")
-
-    except Exception as e:
-        file_path.unlink(missing_ok=True)
-        return Error(f"Error at downloading: {e}")
-
-    if not (await compare_either_hash(file_path, firmware)):
-        logger.warning(f"Hash mismatch for {file_path}")
-
-    return Ok(file_path)
 
 
 async def decrypt_dmg_aea(
