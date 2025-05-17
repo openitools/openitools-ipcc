@@ -19,7 +19,7 @@ logger = logging.getLogger()
 J = TypeVar("J")
 
 # only one can upload and use git
-git_lock = asyncio.Lock()
+GIT_LOCK = asyncio.Lock()
 
 async def run_command(command: Union[str, list[str]], check: bool = True, stdout: int | IO[Any] = asyncio.subprocess.PIPE) -> tuple[str, str, Optional[int]]:
 
@@ -37,6 +37,8 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
     result_stdout = result_stdout.decode() if isinstance(result_stdout, (bytes, bytearray)) else ""
     result_stderr = result_stderr.decode() if isinstance(result_stderr, (bytes, bytearray)) else ""
 
+    logger.debug(f"{' '.join(command)} output: \n stdout: {result_stdout}\n stderr: {result_stderr}")
+
     if proc.returncode != 0 and check:
         raise RuntimeError(f"Command `{command}` failed with code {proc.returncode}:\n{result_stderr}")
 
@@ -44,55 +46,34 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
 
 async def process_files_with_git(ident: str, version: str):
     logger.debug("waiting for the git lock")
+    async with GIT_LOCK:
+        await run_command(f"git add {ident}")
 
-    async with git_lock:
-        out, err, _ = await run_command(f"git add {ident}")
+        await run_command("git stash push")
 
-        logger.debug(f"git add {ident} output: \n stdout: {out} \nstderr: {err}")
-
-        out, err, _ = await run_command("git stash push")
-
-        logger.debug(f"git stash push output: \n stdout: {out} \nstderr: {err}")
-
-        out, err, _ = await run_command("git switch -f files")
-
-        logger.debug(f"git switch -f files output: \n stdout: {out} \nstderr: {err}")
+        await run_command("git switch -f files")
 
         # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
-        out, err, _ = await run_command("git stash pop", check=False)
+        await run_command("git stash pop", check=False)
 
 
-        logger.debug(f"git stash pop output: \n stdout: {out} \nstderr: {err}")
-
-        out, err , _ = await run_command(
+        out, *_ = await run_command(
             "git diff --name-only --diff-filter=U",
         )
-
-        logger.debug(f"git diff output: \n stdout: {out} \nstderr: {err}")
 
         for path in out.splitlines():
             path = path.strip()
             if not path:
                 continue
-            out, err, _ = await run_command(f"git checkout --theirs {path}")
-            logger.debug(f"git checkout --theirs {path} output: \n stdout: {out} \nstderr: {err}")
+            await run_command(f"git checkout --theirs {path}")
                 
-            out, err, _ = await run_command(f"git add {path}")
-            logger.debug(f"git add {path} output: \n stdout: {out} \nstderr: {err}")
+            await run_command(f"git add {path}")
 
+        await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
 
-        out, err, _ = await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
+        await run_command("git push origin files")
 
-
-        logger.debug(f"git commit output: \n stdout: {out} \nstderr: {err}")
-
-        out, err, _ = await run_command("git push origin files")
-
-
-        logger.debug(f"git push origin files output: \n stdout: {out} \nstderr: {err}")
-        out, err, _ = await run_command("git switch main")
-
-        logger.debug(f"git switch main output: \n stdout: {out} \nstderr: {err}")
+        await run_command("git switch main")
 
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
