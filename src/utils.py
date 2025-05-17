@@ -76,17 +76,15 @@ async def process_files_with_git(ident: str, version: str):
                 continue
             out, err, _ = await run_command(f"git checkout --theirs {path}")
             logger.debug(f"git checkout --theirs {path} output: \n stdout: {out} \nstderr: {err}")
-
-        out, err, _ = await run_command(f"git add {ident}")
-
-        logger.debug(f"git add {ident} output: \n stdout: {out} \nstderr: {err}")
-
+                
+            out, err, _ = await run_command(f"git add {path}")
+            logger.debug(f"git add {path} output: \n stdout: {out} \nstderr: {err}")
 
 
         out, err, _ = await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
 
 
-        logger.debug(f"git add . output: \n stdout: {out} \nstderr: {err}")
+        logger.debug(f"git commit output: \n stdout: {out} \nstderr: {err}")
 
         out, err, _ = await run_command("git push origin files")
 
