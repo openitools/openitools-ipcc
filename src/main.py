@@ -551,6 +551,10 @@ async def main():
     # go back before 'src'
     os.chdir(Path(__file__).resolve().parents[1])
 
+
+    if git_mode:
+        await run_command("git switch files")
+
     devices_semaphore = asyncio.Semaphore(args.concurrent_jobs)
 
     async with aiohttp.ClientSession() as session:
