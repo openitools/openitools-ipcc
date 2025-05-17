@@ -17,7 +17,7 @@ async def process_files_with_git(ident: str, version: str):
 
         await run_command("git stash push")
 
-        await run_command("git switch files")
+        await run_command("git switch -f files")
 
         # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
         await run_command("git stash pop", check=False)
