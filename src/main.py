@@ -19,7 +19,7 @@ from scrape_key import decrypt_dmg
 from utils.download import download_file
 from utils.fs import (bundles_glob, delete_non_bundles, put_metadata,
                       system_has_parent)
-from utils.git import copy_previous_metadata, process_files_with_git
+from utils.git import process_files_with_git
 from utils.hash import calculate_hash
 from utils.shell import run_command
 
@@ -506,10 +506,13 @@ async def fetch_and_bake(
 
         ident = parsed_data.firmwares[0].identifier
 
+        if git_mode:
+            await run_command("git switch files")
+
         processed_count = 0
         for firmware in parsed_data.firmwares:
-            if git_mode:
-                await copy_previous_metadata(ident)
+            # if git_mode:
+            #     await copy_previous_metadata(ident)
 
             if await bake_ipcc(firmware, session):
 
