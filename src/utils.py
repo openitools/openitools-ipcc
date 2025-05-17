@@ -37,7 +37,7 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
     result_stdout = result_stdout.decode() if isinstance(result_stdout, (bytes, bytearray)) else ""
     result_stderr = result_stderr.decode() if isinstance(result_stderr, (bytes, bytearray)) else ""
 
-    logger.debug(f"{' '.join(command)} output: \n stdout: {result_stdout}\n stderr: {result_stderr}")
+    logger.debug(f"{' '.join(map(str, command))} output: \n stdout: {result_stdout}\n stderr: {result_stderr}")
 
     if proc.returncode != 0 and check:
         raise RuntimeError(f"Command `{command}` failed with code {proc.returncode}:\n{result_stderr}")
