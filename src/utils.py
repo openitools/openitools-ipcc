@@ -4,7 +4,6 @@ import hashlib
 import json
 import shlex
 import shutil
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any, Callable, List, Literal, Optional, TypeVar, Union
@@ -15,6 +14,9 @@ from models import Error, Firmware, Ok, Result
 
 # for json writing callbacks
 J = TypeVar("J")
+
+# only one can upload and use git
+git_lock = asyncio.Lock()
 
 async def run_command(command: Union[str, list[str]], check: bool = True, stdout: int | IO[Any] = asyncio.subprocess.PIPE) -> tuple[str, str, Optional[int]]:
 
@@ -38,28 +40,29 @@ async def run_command(command: Union[str, list[str]], check: bool = True, stdout
     return result_stdout, result_stderr, proc.returncode
 
 async def process_files_with_git(ident: str, version: str):
-    await run_command(f"git add {ident}")
-    await run_command("git stash push")
+    async with git_lock:
+        await run_command(f"git add {ident}")
+        await run_command("git stash push")
 
-    await run_command("git switch -f files")
+        await run_command("git switch -f files")
 
-    # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
-    await run_command("git stash pop", check=False)
+        # we don't want to check for the pop, because there might be conflicts in there, which will be resolved in the next command
+        await run_command("git stash pop", check=False)
 
-    conflicted = (await run_command(
-        "git diff --name-only --diff-filter=U",
-    ))[0].splitlines()
+        out, _ , _ = await run_command(
+            "git diff --name-only --diff-filter=U",
+        )
 
-    for f in conflicted:
-        await run_command(f"git checkout --theirs {f}")
+        for path in out.splitlines():
+            await run_command(f"git checkout --theirs {path}")
 
-    await run_command("git add .")
+        await run_command("git add .")
 
 
-    await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
+        await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
 
-    await run_command("git push origin files")
-    await run_command("git switch main")
+        await run_command("git push origin files")
+        await run_command("git switch main")
 
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
@@ -67,7 +70,7 @@ async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
         result = await run_command(
             f"git ls-tree -r --name-only {branch} -- {file_path}"
         )
-    except subprocess.SubprocessError:
+    except Exception:
         await run_command("git switch files")
         await run_command("git switch main")
         return await check_file_existence_in_branch(branch, file_path)

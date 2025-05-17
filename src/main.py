@@ -4,7 +4,6 @@ import glob
 import logging
 import os
 import shutil
-import subprocess
 import tarfile
 import traceback
 import zipfile
@@ -207,8 +206,8 @@ async def decrypt_dmg_aea(
         await run_command(
             f"ipsw extract --fcs-key {ipsw_file} --output {output}"
         )
-    except subprocess.CalledProcessError as e:
-        return Error(f"Extraction failed: {e.stderr}")
+    except Exception as e:
+        return Error(f"Extraction failed: {e}")
 
     pem_files = [Path(p) for p in glob.glob(f"{output}/**/*.pem")]
 
@@ -229,8 +228,8 @@ async def decrypt_dmg_aea(
         await run_command(
                 f"ipsw fw aea --pem {pem_file} {dmg_file} --output {output}"
         )
-    except subprocess.CalledProcessError as e:
-        return Error(f"Decryption failed: {e.stderr}")
+    except Exception as e:
+        return Error(f"Decryption failed: {e}")
 
     # we don't need the .dmg.aea
     dmg_file.unlink(missing_ok=True)
@@ -536,7 +535,6 @@ async def fetch_and_bake(
     code: str,
     product: str,
     devices_semaphore: asyncio.Semaphore,
-    git_uploading_semaphore: asyncio.Semaphore,
     git_mode: bool,
 ):
     async with devices_semaphore:
@@ -566,8 +564,7 @@ async def fetch_and_bake(
 
                 processed_count += 1
                 if git_mode:
-                    async with git_uploading_semaphore:
-                        await process_files_with_git(ident, firmware.version)
+                    await process_files_with_git(ident, firmware.version)
 
         if processed_count == 0:
             shutil.rmtree(ident)
@@ -602,14 +599,11 @@ async def main():
 
     devices_semaphore = asyncio.Semaphore(args.concurrent_jobs)
 
-    # only one can be uploading to git
-    git_uploading_semaphore = asyncio.Semaphore(1)
-
     async with aiohttp.ClientSession() as session:
         async with asyncio.TaskGroup() as main_group:
             for product, codes in PRODUCT_CODES.items():
                 for code in codes:
-                    main_group.create_task(fetch_and_bake(session, code, product, devices_semaphore, git_uploading_semaphore, git_mode))
+                    main_group.create_task(fetch_and_bake(session, code, product, devices_semaphore, git_mode))
 
 
 if __name__ == "__main__":
