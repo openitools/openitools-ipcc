@@ -157,7 +157,7 @@ async def download_file(
     """
     file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
     
-    if is_file_ready(file_path, firmware):
+    if await is_file_ready(file_path, firmware):
         return Ok(file_path)
     
     try:
