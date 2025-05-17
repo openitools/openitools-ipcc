@@ -139,32 +139,18 @@ async def compare_either_hash(file_path: Path, firmware: Firmware) -> bool:
         return True
 
     return False
-
-
-async def put_metadata(
+def put_metadata(
     metadata_path: Path, key: str, callback: Callable[[Optional[J]], J]
 ) -> Result[None, str]:
     """Read & update JSON metadata using a callback."""
     try:
-        async with aiofiles.open(metadata_path, "r") as f:
-            try:
-                text = await f.read()
-                metadata = json.loads(text) if text.strip() else {}
-            except FileNotFoundError:
-                metadata = {}
-
+        metadata = json.loads(metadata_path.read_text() or "{}")
         metadata[key] = callback(metadata.get(key))
         metadata["updated_at"] = datetime.now(UTC).isoformat()
-
-        async with aiofiles.open(metadata_path, "w") as f:
-            await f.write(json.dumps(metadata, indent=4))
-
-        return Ok(None)
-
+        metadata_path.write_text(json.dumps(metadata, indent=4))
     except json.JSONDecodeError as e:
         return Error(f"Invalid JSON: {e}")
-    except Exception as e:
-        return Error(f"Unexpected error: {e}")
+    return Ok(None)
 
 
 def bundles_glob(path: Path, has_parent: bool = False) -> List[Path]:

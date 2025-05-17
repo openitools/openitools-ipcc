@@ -262,7 +262,7 @@ async def extract_the_biggest_dmg(
     async def ignore():
         shutil.rmtree(output)
 
-        await put_metadata(
+        put_metadata(
             ignored_firmwares_file,
             "ignored",
             lambda ign: (ign or []) + [firmware.version],
@@ -496,7 +496,7 @@ async def bake_ipcc(
 
         tarred_bundles_value = tarred_with_hash_bundles.value
 
-        await put_metadata(
+        put_metadata(
             bundles_metadata_path,
             "bundles",
             lambda acc: (acc or []) + tarred_bundles_value,
@@ -504,7 +504,7 @@ async def bake_ipcc(
 
         elapsed = (datetime.now(UTC) - start_time).total_seconds()
 
-        await put_metadata(
+        put_metadata(
             base_metadata_path,
             "fw",
             lambda acc: (acc or [])
