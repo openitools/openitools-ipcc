@@ -71,10 +71,13 @@ async def process_files_with_git(ident: str, version: str):
         logger.debug(f"git diff output: \n stdout: {out} \nstderr: {err}")
 
         for path in out.splitlines():
+            path = path.strip()
+            if not path:
+                continue
             out, err, _ = await run_command(f"git checkout --theirs {path}")
             logger.debug(f"git checkout --theirs {path} output: \n stdout: {out} \nstderr: {err}")
 
-        out, err, _ = await run_command("git add .")
+        out, err, _ = await run_command(f"git add {ident}")
 
         logger.debug(f"git add {ident} output: \n stdout: {out} \nstderr: {err}")
 
