@@ -78,41 +78,36 @@ async def process_files_with_git(ident: str, version: str):
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     try:
-        result = await run_command(
+        result, *_ = await run_command(
             f"git ls-tree -r --name-only {branch} -- {file_path}"
         )
     except Exception:
+        # attempt to recover from wrong branch
         await run_command("git switch files")
         await run_command("git switch main")
         return await check_file_existence_in_branch(branch, file_path)
 
-    return bool(result[0].strip())
+    return bool(result.strip())
 
 
 async def copy_previous_metadata(ident: str) -> None:
     ignored_firms_file_path = f"{ident}/ignored_firmwares.json"
-    ignored_firms_exists = await check_file_existence_in_branch(
-        "files", ignored_firms_file_path
-    )
-
     metadata_file_path = f"{ident}/metadata.json"
-    metadata_exists = await check_file_existence_in_branch("files", metadata_file_path)
 
     command = lambda file_path: f"git show files:{file_path}"
 
     Path(ident).mkdir(exist_ok=True)
 
-    if ignored_firms_exists:
-        with open(ignored_firms_file_path, "w") as f:
-            await run_command(
-                command(ignored_firms_file_path), stdout=f
-            )
+    if await check_file_existence_in_branch("files", ignored_firms_file_path):
+        stdout, _, _ = await run_command(command(ignored_firms_file_path))
+        async with aiofiles.open(ignored_firms_file_path, "w") as f:
+            await f.write(stdout)
 
-    if metadata_exists:
-        with open(metadata_file_path, "w") as f:
-            await run_command(
-                command(metadata_file_path), stdout=f
-            )
+
+    if await check_file_existence_in_branch("files", metadata_file_path):
+        stdout, _, _ = await run_command(command(metadata_file_path))
+        async with aiofiles.open(metadata_file_path, "w") as f:
+            await f.write(stdout)
 
 
 async def calculate_hash(file_path: Path, algo: Literal["sha1", "md5"]) -> str:
