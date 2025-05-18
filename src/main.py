@@ -397,11 +397,10 @@ async def bake_ipcc(
     try:
         start_time = datetime.now(UTC)
 
-        if is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
+        if await is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
             return False
 
-
-        if is_firmware_version_done(base_metadata_path, firmware.version):
+        if await is_firmware_version_done(base_metadata_path, firmware.version):
             return False
 
         ipsw_file = await download_file(firmware, version_path, session)
