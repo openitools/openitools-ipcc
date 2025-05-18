@@ -37,7 +37,6 @@ PRODUCT_CODES: Dict[str, List[str]] = {
         "16,4",
         "16,2",
         "15,8",
-        "15,7",
         "15,6",
         "15,5",
         "15,4",
@@ -359,7 +358,6 @@ async def tar_and_hash_bundles(
         output_bundles.append(
             {
                 "bundle_name": bundle_tar.stem,
-                "tar_file": bundle_tar.name,
                 "sha1": sha1,
                 "file_size": bundle_tar.stat().st_size,
                 "created_at": datetime.now(UTC).isoformat(),
