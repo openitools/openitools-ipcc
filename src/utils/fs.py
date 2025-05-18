@@ -4,7 +4,7 @@ import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 import aiofiles
 import aiohttp
@@ -175,3 +175,41 @@ async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
         pass
 
     return Ok(len(lines) > 10)
+
+async def _get_metadata_json(file_path: Path) -> Dict[str, Any]:
+    try:
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as file:
+            metadata = json.loads((await file.read()) or "{}")
+
+    except (FileNotFoundError, json.JSONDecodeError):
+        metadata = {}
+
+    return metadata
+
+async def is_firmware_version_ignored(file_path: Path, firm_version: str) -> bool:
+    metadata = await _get_metadata_json(file_path)
+    
+    firmware_list: List[str] = metadata.get("ignored", [])
+    
+    for fm in firmware_list:
+        try:
+            if fm == firm_version:
+                return True
+        except KeyError:
+            continue
+    
+    return False
+
+async def is_firmware_version_done(file_path: Path, firm_version: str) -> bool:
+    metadata = await _get_metadata_json(file_path)
+    
+    firmware_list: List[Dict[str, Any]] = metadata.get("fw", [])
+    
+    for fm in firmware_list:
+        try:
+            if fm["version"] == firm_version:
+                return True
+        except KeyError:
+            continue
+    
+    return False

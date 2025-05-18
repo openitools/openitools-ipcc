@@ -17,8 +17,9 @@ from tqdm.asyncio import tqdm
 from models import Error, Firmware, Ok, Response, Result
 from scrape_key import decrypt_dmg
 from utils.download import download_file
-from utils.fs import (bundles_glob, delete_non_bundles, put_metadata,
-                      system_has_parent)
+from utils.fs import (bundles_glob, delete_non_bundles,
+                      is_firmware_version_done, is_firmware_version_ignored,
+                      put_metadata, system_has_parent)
 from utils.git import process_files_with_git
 from utils.hash import calculate_hash
 from utils.shell import run_command
@@ -396,14 +397,11 @@ async def bake_ipcc(
     try:
         start_time = datetime.now(UTC)
 
-
-        if (
-            firmware.version
-            in ignored_firmwares_metadata_path.read_text()
-        ):
+        if is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
             return False
 
-        if firmware.version in base_metadata_path.read_text():
+
+        if is_firmware_version_done(base_metadata_path, firmware.version):
             return False
 
         ipsw_file = await download_file(firmware, version_path, session)
