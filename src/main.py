@@ -302,7 +302,8 @@ async def extract_the_biggest_dmg(
         ]
 
         decryption_result = await run_command(
-            command 
+            command,
+            check=False
         )
 
         stdout, stderr, returncode = decryption_result
