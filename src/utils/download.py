@@ -4,14 +4,16 @@ import aiohttp
 
 from models import Error, Firmware, Ok, Result
 from utils import logger
-from utils.fs import cleanup_file, is_file_ready, write_with_progress
+from utils.fs import (cleanup_file, is_file_ready, put_metadata,
+                      write_with_progress)
 from utils.hash import compare_either_hash
 
 
 async def download_file(
     firmware: Firmware,
     version_folder: Path,
-    session: aiohttp.ClientSession
+    session: aiohttp.ClientSession,
+    ignored_firmwares_file: Path
 ) -> Result[Path, str]:
     """
     Downloads the firmware and returns the path to the downloaded .ipsw file
@@ -30,9 +32,23 @@ async def download_file(
             timeout=aiohttp.ClientTimeout(total=1000)
         )
         resp.raise_for_status()
+    except aiohttp.ClientResponseError as e:
+        await cleanup_file(file_path)
+
+        # Service Unavailable, probably on old ios
+        if e.status == 503:
+            await put_metadata(
+                ignored_firmwares_file,
+                "ignored",
+                lambda ign: (ign or []) + [firmware.version],
+            )
+
+        return Error(f"Client Response Error: {e}")
+
     except aiohttp.ClientError as e:
         await cleanup_file(file_path)
-        return Error(f"Network error: {e}")
+        return Error(f"Client Error: {e}")
+
     except Exception as e:
         await cleanup_file(file_path)
         return Error(f"Unexpected error during request: {e}")

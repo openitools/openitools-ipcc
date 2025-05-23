@@ -401,7 +401,7 @@ async def bake_ipcc(
         if await is_firmware_version_done(base_metadata_path, firmware.version):
             return False
 
-        ipsw_file = await download_file(firmware, version_path, session)
+        ipsw_file = await download_file(firmware, version_path, session, ignored_firmwares_metadata_path)
 
         if isinstance(ipsw_file, Error):
             raise RuntimeError(ipsw_file)
