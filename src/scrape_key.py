@@ -6,7 +6,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from models import Error, Ok, Result
-from utils.shell import run_command
+from utils import vfdecrypt
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
@@ -79,13 +79,13 @@ async def decrypt_dmg(
 async def _extract_encrypted_dmg(dmg_file: Path, key: str) -> Result[None, str]:
     temp_file = dmg_file.parent / (dmg_file.name + ".temp")
 
-    process = await run_command(
-        f"vfdecrypt -i {dmg_file} -k {key} -o {temp_file}",
-    )
-    _, stderr, returncode = process
-
-    if returncode != 0:
-        return Error(stderr.strip())
+    vfdecrypt.decrypt_vf(dmg_file, temp_file, key)
+    # _, stderr, returncode = await run_command(
+    #     f"vfdecrypt -i {dmg_file} -k {key} -o {temp_file}", check=False
+    # )
+    #
+    # if returncode != 0:
+    #     return Error(stderr.strip())
 
     # Delete the old file and rename the temporary file to the original name
     try:
