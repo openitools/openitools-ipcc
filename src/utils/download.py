@@ -6,6 +6,7 @@ from models import Error, Firmware, Ok, Result
 from utils import logger
 from utils.fs import (cleanup_file, is_file_ready, put_metadata,
                       write_with_progress)
+from utils.git import process_files_with_git
 from utils.hash import compare_either_hash
 
 
@@ -42,6 +43,8 @@ async def download_file(
                 "ignored",
                 lambda ign: (ign or []) + [firmware.version],
             )
+
+            await process_files_with_git(firmware.identifier, firmware.version, "ignored {version} for {ident}")
 
         return Error(f"Client Response Error: {e}")
 

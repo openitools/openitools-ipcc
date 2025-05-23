@@ -10,7 +10,7 @@ from utils.shell import run_command
 GIT_LOCK = asyncio.Lock()
 
 
-async def process_files_with_git(ident: str, version: str):
+async def process_files_with_git(ident: str, version: str, message: str = 'added {version} ipcc files for {ident}'):
     logger.debug("waiting for the git lock")
     async with GIT_LOCK:
         await run_command(f"git add {ident}")
@@ -35,7 +35,7 @@ async def process_files_with_git(ident: str, version: str):
         #
         #     await run_command(f"git add {path}")
 
-        await run_command(f"git commit -m 'added {version} ipcc files for {ident}'")
+        await run_command(f"git commit -m {message.format(version = version, ident = ident)}")
 
         await run_command("git push origin files")
 
