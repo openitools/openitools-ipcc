@@ -35,7 +35,7 @@ async def process_files_with_git(ident: str, version: str, message: str = 'added
         #
         #     await run_command(f"git add {path}")
 
-        await run_command(f"git commit -m {message.format(version = version, ident = ident)}")
+        await run_command(f"git commit -m '{message.format(version = version, ident = ident)}'")
 
         await run_command("git push origin files")
 
