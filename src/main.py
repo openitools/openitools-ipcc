@@ -397,7 +397,7 @@ async def bake_ipcc(
         start_time = datetime.now(UTC)
 
         if await is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
-            shutil.rmtree(version_path)
+            shutil.rmtree(version_path, ignore_errors=True)
             return False
 
         if await is_firmware_version_done(base_metadata_path, firmware.version):
@@ -469,7 +469,7 @@ async def bake_ipcc(
         return True
 
     except Exception as e:
-        shutil.rmtree(version_path)
+        shutil.rmtree(version_path, ignore_errors=True)
 
         logger.error(
             f"Something went wrong, {e}\n traceback: {traceback.format_exc()}"
