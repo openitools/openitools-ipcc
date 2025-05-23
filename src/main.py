@@ -397,6 +397,7 @@ async def bake_ipcc(
         start_time = datetime.now(UTC)
 
         if await is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
+            shutil.rmtree(version_path)
             return False
 
         if await is_firmware_version_done(base_metadata_path, firmware.version):
