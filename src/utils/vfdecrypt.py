@@ -11,9 +11,13 @@ CIPHER_BLOCKSIZE = 16
 CHUNK_SIZE = 1024 ** 5
 V1_HEADER_SIZE = 1276
 V2_HEADER_SIZE = 0x318 + 0x260
+KEY_LENGTH = CIPHER_KEY_LENGTH + MD_LENGTH
 
 class V1Header:
     def __init__(self, data: bytes):
+        if len(data) < 0x1B8:
+            raise ValueError(f"Data too short for V1Header: {len(data)} bytes")
+
         self.kdf_iteration_count, = struct.unpack(">I", data[0x34:0x38])
         self.kdf_salt_len,        = struct.unpack(">I", data[0x38:0x3C])
         self.kdf_salt             = data[0x3C:0x3C+self.kdf_salt_len]
@@ -25,6 +29,9 @@ class V1Header:
 
 class V2Header:
     def __init__(self, data: bytes):
+        if len(data) < V2_HEADER_SIZE:
+            raise ValueError(f"Data too short for V2Header: {len(data)} bytes")
+
         off = 0
         self.sig = data[off:off+8]; off += 8
         _, self.enc_iv_size, *_ = struct.unpack(">7I", data[off:off+28]); off += 28
@@ -97,25 +104,34 @@ def _decrypt_image(
 
 def decrypt_vf(path_in: Path, path_out: Path, key: str):
     ver = _determine_version(path_in)
-    hdr_size = V1_HEADER_SIZE if ver == 1 else V2_HEADER_SIZE
 
     with path_in.open("rb") as f:
         if ver == 1:
-            f.seek(-hdr_size, 2)
-            hdr = V1Header(f.read(hdr_size))
+            f.seek(0, 2)
+            file_size = f.tell()
+            f.seek(file_size - V1_HEADER_SIZE)
+            header_data = f.read(V1_HEADER_SIZE)
+            if len(header_data) < V1_HEADER_SIZE:
+                raise ValueError("File too small for V1 header")
+            hdr = V1Header(header_data)
             data_offset = 0
-            data_size = f.tell() - hdr_size
+            data_size = file_size - V1_HEADER_SIZE
             chunk_size = CHUNK_SIZE
         else:
-            f.seek(0)
-            hdr = V2Header(f.read(hdr_size))
+            header_data = f.read(V2_HEADER_SIZE)
+            if len(header_data) < V2_HEADER_SIZE:
+                raise ValueError("File too small for V2 header")
+            hdr = V2Header(header_data)
             data_offset = hdr.dataoffset
             data_size = hdr.datasize
             chunk_size = hdr.blocksize or CHUNK_SIZE
 
+    if chunk_size == 0:
+        raise ValueError("Invalid chunk size (zero)")
+
     kb = bytes.fromhex(key)
-    if len(kb) != (CIPHER_KEY_LENGTH + MD_LENGTH):
-        raise ValueError(f"key must be {CIPHER_KEY_LENGTH+MD_LENGTH} bytes (hex {2*(CIPHER_KEY_LENGTH+MD_LENGTH)} chars)")
+    if len(kb) != KEY_LENGTH:
+        raise ValueError(f"key must be {KEY_LENGTH} bytes (hex {2*KEY_LENGTH} chars)")
     aes_key = kb[:CIPHER_KEY_LENGTH]
     hmac_key = kb[CIPHER_KEY_LENGTH:]
 

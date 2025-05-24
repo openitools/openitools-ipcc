@@ -45,7 +45,7 @@ async def download_file(
                 lambda ign: (ign or []) + [firmware.version],
             )
 
-            shutil.rmtree(Path(firmware.identifier) / firmware.version)
+            shutil.rmtree(Path(firmware.identifier) / firmware.version, ignore_errors=True)
             await process_files_with_git(firmware.identifier, firmware.version, "ignored {version} for {ident}")
 
         return Error(f"Client Response Error: {e}")
