@@ -1,10 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generic, List, TypeVar, Union
+from typing import Generic, List, TypedDict, TypeVar, Union
 
 T = TypeVar("T")
 E = TypeVar("E")
 
+class BundleMetadata(TypedDict):
+    bundle_name: str
+    sha1: str
+    file_size: int
+    created_at: str
 
 @dataclass
 class Ok(Generic[T]):
