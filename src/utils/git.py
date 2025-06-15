@@ -10,7 +10,9 @@ from utils.shell import run_command
 GIT_LOCK = asyncio.Lock()
 
 
-async def process_files_with_git(ident: str, version: str, message: str = 'added {version} ipcc files for {ident}'):
+async def process_files_with_git(
+    ident: str, version: str, message: str = "added {version} ipcc files for {ident}"
+):
     logger.debug("waiting for the git lock")
     async with GIT_LOCK:
         await run_command(f"git add {ident}")
@@ -35,7 +37,9 @@ async def process_files_with_git(ident: str, version: str, message: str = 'added
         #
         #     await run_command(f"git add {path}")
 
-        await run_command(f"git commit -m '{message.format(version = version, ident = ident)}'")
+        await run_command(
+            f"git commit -m '{message.format(version=version, ident=ident)}'"
+        )
 
         await run_command("git push origin files")
 
@@ -68,7 +72,6 @@ async def copy_previous_metadata(ident: str) -> None:
         stdout, _, _ = await run_command(command(ignored_firms_file_path))
         async with aiofiles.open(ignored_firms_file_path, "w") as f:
             await f.write(stdout)
-
 
     if await check_file_existence_in_branch("files", metadata_file_path):
         stdout, _, _ = await run_command(command(metadata_file_path))

@@ -17,11 +17,12 @@ from utils.hash import compare_either_hash
 # for json writing callbacks
 J = TypeVar("J")
 
+
 async def is_file_ready(file_path: Path, firmware: Firmware) -> bool:
     """
     returns True if the file exists and the hash matches, otherwise remove it and return False
     """
-    
+
     if file_path.exists():
         if await compare_either_hash(file_path, firmware):
             logger.info("ipsw file already exists, using it")
@@ -32,19 +33,22 @@ async def is_file_ready(file_path: Path, firmware: Firmware) -> bool:
 
     return False
 
+
 async def write_with_progress(
     resp: aiohttp.ClientResponse,
     file_path: Path,
     total_bytes: int,
-    chunk_size: int = 8_192
+    chunk_size: int = 8_192,
 ) -> None:
     """Helper to write response.content → disk with a tqdm bar."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Open sync—in practice, IPSW writes are large and async file libs
     # often perform worse than plain open().
-    with open(file_path, "wb") as f, \
-         tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar:
+    with (
+        open(file_path, "wb") as f,
+        tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
+    ):
         async for chunk in resp.content.iter_chunked(chunk_size):
             f.write(chunk)
             bar.update(len(chunk))
@@ -58,7 +62,6 @@ async def cleanup_file(file_path: Path) -> None:
         pass
 
 
-
 async def put_metadata(
     metadata_path: Path, key: str, callback: Callable[[Optional[J]], J]
 ) -> Result[None, str]:
@@ -67,11 +70,10 @@ async def put_metadata(
     try:
         try:
             async with aiofiles.open(metadata_path, "r") as f:
-                    text = await f.read()
+                text = await f.read()
 
-                    logger.debug(f"{metadata_path} content: '{text}'")
-                    metadata = json.loads(text) if text.strip() else {}
-
+                logger.debug(f"{metadata_path} content: '{text}'")
+                metadata = json.loads(text) if text.strip() else {}
 
         except FileNotFoundError:
             metadata = {}
@@ -80,7 +82,6 @@ async def put_metadata(
 
         metadata[key] = callback(metadata.get(key))
         metadata["updated_at"] = datetime.now(UTC).isoformat()
-
 
         logger.debug(f"after: {metadata = }")
 
@@ -176,9 +177,10 @@ async def system_has_parent(dmg_file: Path) -> Result[bool, str]:
 
     return Ok(len(lines) > 10)
 
+
 async def _get_metadata_json(file_path: Path) -> Dict[str, Any]:
     try:
-        async with aiofiles.open(file_path, 'r', encoding='utf-8') as file:
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as file:
             metadata = json.loads((await file.read()) or "{}")
 
     except (FileNotFoundError, json.JSONDecodeError):
@@ -186,30 +188,32 @@ async def _get_metadata_json(file_path: Path) -> Dict[str, Any]:
 
     return metadata
 
+
 async def is_firmware_version_ignored(file_path: Path, firm_version: str) -> bool:
     metadata = await _get_metadata_json(file_path)
-    
+
     firmware_list: List[str] = metadata.get("ignored", [])
-    
+
     for fm in firmware_list:
         try:
             if fm == firm_version:
                 return True
         except KeyError:
             continue
-    
+
     return False
+
 
 async def is_firmware_version_done(file_path: Path, firm_version: str) -> bool:
     metadata = await _get_metadata_json(file_path)
-    
+
     firmware_list: List[Dict[str, Any]] = metadata.get("fw", [])
-    
+
     for fm in firmware_list:
         try:
             if fm["version"] == firm_version:
                 return True
         except KeyError:
             continue
-    
+
     return False

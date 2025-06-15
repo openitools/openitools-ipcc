@@ -5,8 +5,7 @@ import aiohttp
 
 from models import Error, Firmware, Ok, Result
 from utils import logger
-from utils.fs import (cleanup_file, is_file_ready, put_metadata,
-                      write_with_progress)
+from utils.fs import cleanup_file, is_file_ready, put_metadata, write_with_progress
 from utils.git import process_files_with_git
 from utils.hash import compare_either_hash
 
@@ -15,7 +14,7 @@ async def download_file(
     firmware: Firmware,
     version_folder: Path,
     session: aiohttp.ClientSession,
-    ignored_firmwares_file: Path
+    ignored_firmwares_file: Path,
 ) -> Result[Path, str]:
     """
     Downloads the firmware and returns the path to the downloaded .ipsw file
@@ -26,12 +25,10 @@ async def download_file(
     if await is_file_ready(file_path, firmware):
         return Ok(file_path)
 
-
     # 2) Do the HTTP GET
     try:
         resp = await session.get(
-            firmware.url,
-            timeout=aiohttp.ClientTimeout(total=1000)
+            firmware.url, timeout=aiohttp.ClientTimeout(total=1000)
         )
         resp.raise_for_status()
     except aiohttp.ClientResponseError as e:
@@ -45,8 +42,12 @@ async def download_file(
                 lambda ign: (ign or []) + [firmware.version],
             )
 
-            shutil.rmtree(Path(firmware.identifier) / firmware.version, ignore_errors=True)
-            await process_files_with_git(firmware.identifier, firmware.version, "ignored {version} for {ident}")
+            shutil.rmtree(
+                Path(firmware.identifier) / firmware.version, ignore_errors=True
+            )
+            await process_files_with_git(
+                firmware.identifier, firmware.version, "ignored {version} for {ident}"
+            )
 
         return Error(f"Client Response Error: {e}")
 

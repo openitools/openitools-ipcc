@@ -22,6 +22,7 @@ from utils.fs import (bundles_glob, delete_non_bundles,
                       put_metadata, system_has_parent)
 from utils.git import process_files_with_git
 from utils.hash import calculate_hash
+from utils.helpers import install_ipsw
 from utils.shell import run_command
 
 logging.basicConfig(
@@ -58,41 +59,18 @@ PRODUCT_CODES: Dict[str, List[str]] = {
     ]
 }
 
-async def _install_ipsw():
-
-    deb_path = Path("ipsw.deb")
-
-    if not deb_path.exists():
-        logger.info("Downloading ipsw...")
-
-        command = f"wget https://github.com/blacktop/ipsw/releases/download/v3.1.544/ipsw_3.1.544_linux_x86_64.deb -O {deb_path}" 
-
-        stdout, stderr, return_code = await run_command(command)
-
-
-        if return_code != 0:
-            return Error(f"Failed to download ipsw: {stdout} | {stderr}")
-
-    stdout, stderr, return_code = await run_command(f"sudo dpkg -i {deb_path}")
-
-    if return_code != 0:
-        return Error(f"Failed to install ipsw: {stdout} | {stderr}")
-    
-    deb_path.unlink(missing_ok=True)
 
 async def decrypt_dmg_aea(
-    ipsw_file: Path, 
-    dmg_file: Path, 
-    output: Path
+    ipsw_file: Path, dmg_file: Path, output: Path
 ) -> Result[None, str]:
     """Decrypt DMG.AEA file using ipsw tool."""
     logger.info(f"Decrypting {dmg_file}")
-    
+
     try:
         # Check if ipsw is installed
         if shutil.which("ipsw") is None:
             logger.warning("ipsw is not installed")
-            await _install_ipsw()
+            await install_ipsw()
 
         # Extract with ipsw
         stdout, stderr, return_code = await run_command(
@@ -107,7 +85,10 @@ async def decrypt_dmg_aea(
             return Error("No PEM file found.")
 
         # Find matching PEM or use first one
-        pem_file = next((p for p in pem_files if p.stem == dmg_file.name), None) or pem_files[0]
+        pem_file = (
+            next((p for p in pem_files if p.stem == dmg_file.name), None)
+            or pem_files[0]
+        )
         logger.info(f"Using PEM file: {pem_file}")
 
         # Decrypt
@@ -129,15 +110,16 @@ async def decrypt_dmg_aea(
     except Exception as e:
         return Error(f"Unexpected error in decrypt_dmg_aea: {str(e)}")
 
-async def _handle_aea_dmg(dmg_file: Path, biggest_dmg_file_path: Path, output: Path) -> Result[Path, str]:
 
-    decryption_result = await decrypt_dmg_aea(
-        dmg_file, biggest_dmg_file_path, output
-    )
+async def handle_aea_dmg(
+    dmg_file: Path, biggest_dmg_file_path: Path, output: Path
+) -> Result[Path, str]:
+    decryption_result = await decrypt_dmg_aea(dmg_file, biggest_dmg_file_path, output)
     if isinstance(decryption_result, Error):
         return decryption_result
 
     return Ok(biggest_dmg_file_path.parent / biggest_dmg_file_path.stem)
+
 
 async def extract_the_biggest_dmg(
     dmg_file: Path,
@@ -149,13 +131,13 @@ async def extract_the_biggest_dmg(
 ) -> Result[bool, str]:
     """
     Extract the biggest DMG from IPSW file.
-    
+
     It would also return whether the 'System' has a parent or not
     """
     logger.info(f"Extracting the biggest DMG from {dmg_file}")
-    
+
     biggest_dmg_file_path: Optional[Path] = None
-    
+
     try:
         # Verify ZIP file first
         if not zipfile.is_zipfile(dmg_file):
@@ -164,7 +146,11 @@ async def extract_the_biggest_dmg(
         with zipfile.ZipFile(dmg_file) as zip_file:
             # Find biggest DMG file
             try:
-                dmg_files = [f for f in zip_file.infolist() if f.filename.endswith(('.dmg', '.dmg.aea'))]
+                dmg_files = [
+                    f
+                    for f in zip_file.infolist()
+                    if f.filename.endswith((".dmg", ".dmg.aea"))
+                ]
                 if not dmg_files:
                     error_msg = "No .dmg or .dmg.aea files found in the IPSW"
                     logger.warning(error_msg)
@@ -183,8 +169,10 @@ async def extract_the_biggest_dmg(
                 )
 
                 # Extract if needed
-                if (not biggest_dmg_file_path.exists() or 
-                    biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size) and not skip_extraction:
+                if (
+                    not biggest_dmg_file_path.exists()
+                    or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
+                ) and not skip_extraction:
                     logger.info(f"Extracting {biggest_dmg.filename} to {output}")
                     with (
                         zip_file.open(biggest_dmg) as source,
@@ -211,13 +199,14 @@ async def extract_the_biggest_dmg(
         # Handle AEA decryption if needed
         if biggest_dmg_file_path and "aea" in biggest_dmg_file_path.suffixes:
             logger.info("Detected 'aea' in file suffix, starting decryption")
-            handle_result = await _handle_aea_dmg(dmg_file, biggest_dmg_file_path, output)
+            handle_result = await handle_aea_dmg(
+                dmg_file, biggest_dmg_file_path, output
+            )
 
             if isinstance(handle_result, Error):
                 return handle_result
 
             biggest_dmg_file_path = handle_result.value
-
 
         # Extract bundles
         if not biggest_dmg_file_path or not biggest_dmg_file_path.exists():
@@ -304,12 +293,14 @@ async def tar_and_hash_bundles(
             sha1_result = await calculate_hash(bundle_tar, "sha1")
 
             # Add metadata
-            output_bundles.append({
-                "bundle_name": bundle_tar.stem,
-                "sha1": sha1_result,
-                "file_size": bundle_tar.stat().st_size,
-                "created_at": datetime.now(UTC).isoformat(),
-            })
+            output_bundles.append(
+                {
+                    "bundle_name": bundle_tar.stem,
+                    "sha1": sha1_result,
+                    "file_size": bundle_tar.stat().st_size,
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
 
             # Cleanup bundle folder
             try:
@@ -341,13 +332,19 @@ async def bake_ipcc(
         ignored_firmwares_metadata_path = base_path / "ignored_firmwares.json"
         bundles_metadata_path = version_path / "bundles.json"
 
-        for p in [base_metadata_path, ignored_firmwares_metadata_path, bundles_metadata_path]:
+        for p in [
+            base_metadata_path,
+            ignored_firmwares_metadata_path,
+            bundles_metadata_path,
+        ]:
             p.touch(exist_ok=True)
 
         start_time = datetime.now(UTC)
 
         # Check if version should be ignored
-        if await is_firmware_version_ignored(ignored_firmwares_metadata_path, firmware.version):
+        if await is_firmware_version_ignored(
+            ignored_firmwares_metadata_path, firmware.version
+        ):
             shutil.rmtree(version_path, ignore_errors=True)
             return False
 
@@ -356,7 +353,9 @@ async def bake_ipcc(
             return False
 
         # Download IPSW file
-        ipsw_result = await download_file(firmware, version_path, session, ignored_firmwares_metadata_path)
+        ipsw_result = await download_file(
+            firmware, version_path, session, ignored_firmwares_metadata_path
+        )
         if isinstance(ipsw_result, Error):
             raise RuntimeError(ipsw_result)
 
@@ -394,20 +393,26 @@ async def bake_ipcc(
         await put_metadata(
             base_metadata_path,
             "fw",
-            lambda acc: (acc or []) + [{
-                "version": firmware.version,
-                "buildid": firmware.buildid,
-                "downloaded_at": datetime.now(UTC).isoformat(),
-                "processing_time_sec": elapsed,
-            }],
+            lambda acc: (acc or [])
+            + [
+                {
+                    "version": firmware.version,
+                    "buildid": firmware.buildid,
+                    "downloaded_at": datetime.now(UTC).isoformat(),
+                    "processing_time_sec": elapsed,
+                }
+            ],
         )
 
         return True
 
     except Exception as e:
-        logger.error(f"Error processing {firmware.identifier} {firmware.version}: {str(e)}\n{traceback.format_exc()}")
+        logger.error(
+            f"Error processing {firmware.identifier} {firmware.version}: {str(e)}\n{traceback.format_exc()}"
+        )
         shutil.rmtree(version_path, ignore_errors=True)
         return False
+
 
 async def fetch_and_bake(
     session: aiohttp.ClientSession,
@@ -423,11 +428,12 @@ async def fetch_and_bake(
             logger.info(f"Processing device {model}")
 
             async with session.get(
-                f"https://api.ipsw.me/v4/device/{model}", 
-                params={"type": "ipsw"}
+                f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
             ) as response:
                 if response.status != 200:
-                    logger.error(f"Failed to fetch data for {model}: {await response.text()}")
+                    logger.error(
+                        f"Failed to fetch data for {model}: {await response.text()}"
+                    )
                     return
 
                 parsed_data = Response.from_dict(await response.json())
@@ -442,15 +448,22 @@ async def fetch_and_bake(
                     if await bake_ipcc(firmware, session):
                         processed_count += 1
                         if git_mode:
-                            git_result = await process_files_with_git(ident, firmware.version)
+                            git_result = await process_files_with_git(
+                                ident, firmware.version
+                            )
                             if isinstance(git_result, Error):
-                                logger.error(f"Git processing failed: {git_result.value}")
+                                logger.error(
+                                    f"Git processing failed: {git_result.value}"
+                                )
 
                 if processed_count == 0:
                     shutil.rmtree(ident, ignore_errors=True)
 
         except Exception as e:
-            logger.error(f"Error processing device {product}{code}: {str(e)}\n{traceback.format_exc()}")
+            logger.error(
+                f"Error processing device {product}{code}: {str(e)}\n{traceback.format_exc()}"
+            )
+
 
 async def main() -> None:
     """Main entry point."""
@@ -488,10 +501,13 @@ async def main() -> None:
                 for product, codes in PRODUCT_CODES.items():
                     for code in codes:
                         tg.create_task(
-                            fetch_and_bake(session, code, product, devices_semaphore, args.git)
+                            fetch_and_bake(
+                                session, code, product, devices_semaphore, args.git
+                            )
                         )
         except Exception as e:
             logger.error(f"Error in main task group: {str(e)}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
