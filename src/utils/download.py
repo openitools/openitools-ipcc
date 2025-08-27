@@ -33,7 +33,12 @@ async def get_response(
 
     if file_size > 0:
         headers["Range"] = f"bytes={file_size}"
-        logger.debug(f"Resuming download from byte {file_size}")
+        msg = f"resuming download from byte {file_size}"
+
+        if last_content_length:
+            msg += f", last remote content length: {last_content_length}"
+
+        logger.info(msg)
 
     try:
         resp = await session.get(
@@ -86,9 +91,9 @@ async def download_file(
 
     # retry resuming the download if error ocurred
     for attempt in range(1, MAX_RETRIES + 1):
-        content_length = None
+        last_content_length = None
 
-        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, content_length)
+        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, last_content_length)
 
         if isinstance(response, Error):
             if response.error == "already good":
@@ -100,13 +105,17 @@ async def download_file(
 
         response = response.value
 
-        content_length = int(response.headers.get("Content-Length", 0))
+        # Determine the total size for progress tracking
+        if "Content-Range" in response.headers:
+            last_content_length = int(response.headers["Content-Range"].split("/")[-1])
+        else:
+            last_content_length = int(response.headers.get("Content-Length", 0))
 
-        if content_length == 0:
-            logger.warning(f"No Content-Length for {firmware.url}")
+        if last_content_length == 0:
+            logger.warning(f"No Content-Length available for {firmware.url}")
 
         try:
-            await write_with_progress(response, file_path, content_length, CHUNK_SIZE)
+            await write_with_progress(response, file_path, last_content_length, CHUNK_SIZE)
 
             break
         except Exception as e:
