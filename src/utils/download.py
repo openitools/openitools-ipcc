@@ -89,17 +89,23 @@ async def download_file(
     if await is_file_ready(file_path, firmware):
         return Ok(file_path)
 
+    last_content_length: int | None = None
+
     # retry resuming the download if error ocurred
     for attempt in range(1, MAX_RETRIES + 1):
-        last_content_length = None
 
         response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, last_content_length)
 
         if isinstance(response, Error):
+            if "416" in response.error:
+                logger.warning("Got 416, deleting partial file and starting fresh")
+                await cleanup_file(file_path)
+                last_content_length = None
+                continue
+
             if response.error == "already good":
                 return Ok(file_path)
 
-            # we don't want to retry this one, because it's probably not going to be fixed by retrying
             await cleanup_file(file_path)
             return response
 
