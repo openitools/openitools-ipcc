@@ -21,12 +21,19 @@ async def get_response(
     ignored_firmwares_file: Path,
     git_mode: bool,
     file_path: Path,
+    last_content_length: None | int
 ) -> Result[aiohttp.ClientResponse, str]:
-    file_size = 0 if not file_path.exists() else file_path.stat().st_size
-
+    file_size = file_path.stat().st_size if file_path.exists() else 0
     headers = {}
-    if file_size > CHUNK_SIZE:
+
+    if last_content_length is not None and file_size >= last_content_length:
+        logger.warning(f"Local file bigger or equal than server file, local: {file_size}, server: {last_content_length}")
+
+        return Error("already good")
+
+    if file_size > 0:
         headers["Range"] = f"bytes={file_size}"
+        logger.debug(f"Resuming download from byte {file_size}")
 
     try:
         resp = await session.get(
@@ -79,9 +86,14 @@ async def download_file(
 
     # retry resuming the download if error ocurred
     for attempt in range(1, MAX_RETRIES + 1):
-        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path)
+        content_length = None
+
+        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, content_length)
 
         if isinstance(response, Error):
+            if response.error == "already good":
+                return Ok(file_path)
+
             # we don't want to retry this one, because it's probably not going to be fixed by retrying
             await cleanup_file(file_path)
             return response
