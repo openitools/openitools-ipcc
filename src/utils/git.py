@@ -15,6 +15,8 @@ async def process_files_with_git(
 ):
     logger.debug("waiting for the git lock")
     async with GIT_LOCK:
+        # disable sparse rules temporary
+        await run_command("git sparse-checkout disable")
         await run_command(f"git add {ident}")
 
         # await run_command("git stash push")
@@ -43,6 +45,7 @@ async def process_files_with_git(
 
         await run_command("git push origin files")
 
+        await run_command("git sparse-checkout reapply")
         # await run_command("git switch main")
 
 
