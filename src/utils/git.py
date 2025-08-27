@@ -3,6 +3,7 @@ from pathlib import Path
 
 import aiofiles
 
+from models import Firmware
 from utils import logger
 from utils.shell import run_command
 
@@ -11,13 +12,13 @@ GIT_LOCK = asyncio.Lock()
 
 
 async def process_files_with_git(
-    ident: str, version: str, message: str = "added {version} ipcc files for {ident}"
+    firmware: Firmware, message: str = "added {version} ipcc files for {ident}"
 ):
     logger.debug("waiting for the git lock")
     async with GIT_LOCK:
         # disable sparse rules temporary
-        await run_command("git sparse-checkout disable")
-        await run_command(f"git add {ident}")
+        await run_command(f"git sparse-checkout add '{firmware.identifier}/{firmware.version}/*'")
+        await run_command(f"git add {firmware.identifier}")
 
         # await run_command("git stash push")
         #
@@ -40,12 +41,10 @@ async def process_files_with_git(
         #     await run_command(f"git add {path}")
 
         await run_command(
-            f"git commit -m '{message.format(version=version, ident=ident)}'"
+            f"git commit -m '{message.format(version=firmware.version, ident=firmware.identifier)}'"
         )
 
         await run_command("git push origin files")
-
-        await run_command("git sparse-checkout reapply")
         # await run_command("git switch main")
 
 

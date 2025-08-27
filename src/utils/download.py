@@ -50,7 +50,7 @@ async def download_file(
 
             if git_mode:
                 await process_files_with_git(
-                    firmware.identifier, firmware.version, "ignored {version} for {ident}"
+                    firmware, "ignored {version} for {ident}"
                 )
 
         return Error(f"Client Response Error: {e}")

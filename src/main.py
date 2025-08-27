@@ -442,23 +442,23 @@ async def fetch_and_bake(
                     logger.warning(f"No firmwares found for {model}")
                     return
 
-                ident = parsed_data.firmwares[0].identifier
                 processed_count = 0
+                # assuming there's at least one firmware
+                current_ident = parsed_data.firmwares[0].identifier
+
 
                 for firmware in parsed_data.firmwares:
                     if await bake_ipcc(firmware, session, git_mode):
                         processed_count += 1
                         if git_mode:
-                            git_result = await process_files_with_git(
-                                ident, firmware.version
-                            )
+                            git_result = await process_files_with_git(firmware)
                             if isinstance(git_result, Error):
                                 logger.error(
                                     f"Git processing failed: {git_result.value}"
                                 )
 
                 if processed_count == 0:
-                    shutil.rmtree(ident, ignore_errors=True)
+                    shutil.rmtree(current_ident, ignore_errors=True)
 
         except Exception as e:
             logger.error(
