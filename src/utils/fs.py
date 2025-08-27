@@ -52,7 +52,7 @@ async def write_with_progress(
         async for chunk in resp.content.iter_chunked(chunk_size):
 
             wrote = f.write(chunk)
-            bar.set_description(f"{chunk = }-> {wrote =}")
+            bar.set_description(f"Down = {len(chunk) }-> {wrote =}")
             bar.update(len(chunk))
 
             # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
