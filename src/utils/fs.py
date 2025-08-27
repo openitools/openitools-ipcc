@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import itertools
 import json
 import shutil
 from datetime import UTC, datetime
@@ -52,12 +53,14 @@ async def write_with_progress(
     ):
         while True:
             async with one_downloader:
-                chunk = await resp.content.read(chunk_size)
-                if not chunk:
-                    break
+                # read 5 times per lock, instead of locking and releasing everytime
+                for _ in itertools.repeat(None, 5):
+                    chunk = await resp.content.read(chunk_size)
+                    if not chunk:
+                        break
 
-                f.write(chunk)
-                bar.update(len(chunk))
+                    f.write(chunk)
+                    bar.update(len(chunk))
             
         # async for chunk in resp.content.iter_chunked(chunk_size):
         #     # # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
