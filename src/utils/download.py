@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 from pathlib import Path
 
@@ -10,32 +11,28 @@ from utils.fs import (cleanup_file, is_file_ready, put_metadata,
 from utils.git import process_files_with_git
 from utils.hash import compare_either_hash
 
+MAX_RETRIES = 3
+DELAY = 1
+CHUNK_SIZE = 8_192
 
-async def download_file(
+async def get_response(
     firmware: Firmware,
-    version_folder: Path,
     session: aiohttp.ClientSession,
     ignored_firmwares_file: Path,
-    git_mode: bool
-) -> Result[Path, str]:
-    """
-    Downloads the firmware and returns the path to the downloaded .ipsw file
-    """
-    file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
+    git_mode: bool,
+    file_path: Path,
+) -> Result[aiohttp.ClientResponse, str]:
+    file_size = file_path.stat().st_size
+    headers = {}
+    if file_size > CHUNK_SIZE:
+        headers["Range"] = f"bytes={file_size}"
 
-    # 1) If it’s already good, skip the download
-    if await is_file_ready(file_path, firmware):
-        return Ok(file_path)
-
-    # 2) Do the HTTP GET
     try:
         resp = await session.get(
-            firmware.url, timeout=aiohttp.ClientTimeout(total=1000)
+                firmware.url, timeout=aiohttp.ClientTimeout(total=1000), headers=headers
         )
         resp.raise_for_status()
     except aiohttp.ClientResponseError as e:
-        await cleanup_file(file_path)
-
         # Service Unavailable, probably on old ios
         if e.status == 503:
             await put_metadata(
@@ -56,22 +53,59 @@ async def download_file(
         return Error(f"Client Response Error: {e}")
 
     except aiohttp.ClientError as e:
-        await cleanup_file(file_path)
         return Error(f"Client Error: {e}")
 
     except Exception as e:
-        await cleanup_file(file_path)
         return Error(f"Unexpected error during request: {e}")
 
-    # 3) Stream it to disk with a tqdm progress bar
-    content_length = int(resp.headers.get("Content-Length", 0))
-    try:
-        await write_with_progress(resp, file_path, content_length)
-    except Exception as e:
-        await cleanup_file(file_path)
-        return Error(f"Error writing file: {e}")
+    return Ok(resp)
 
-    # 4) Final hash check
+async def download_file(
+    firmware: Firmware,
+    version_folder: Path,
+    session: aiohttp.ClientSession,
+    ignored_firmwares_file: Path,
+    git_mode: bool
+) -> Result[Path, str]:
+    """
+    Downloads the firmware and returns the path to the downloaded .ipsw file
+    """
+    file_path = version_folder / f"{firmware.identifier}-{firmware.version}.ipsw"
+
+    # If it’s already good, skip the download
+    if await is_file_ready(file_path, firmware):
+        return Ok(file_path)
+
+    # retry resuming the download if error ocurred
+    for attempt in range(1, MAX_RETRIES + 1):
+        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path)
+
+        if isinstance(response, Error):
+            # we don't want to retry this one, because it's probably not going to be fixed by retrying
+            await cleanup_file(file_path)
+            return response
+
+        response = response.value
+
+        content_length = int(response.headers.get("Content-Length", 0))
+
+        if content_length == 0:
+            logger.warning(f"No Content-Length for {firmware.url}")
+
+        try:
+            await write_with_progress(response, file_path, content_length, CHUNK_SIZE)
+
+            break
+        except Exception as e:
+
+            if attempt == MAX_RETRIES:
+                await cleanup_file(file_path)
+
+                return Error(f"Error writing file after {MAX_RETRIES} retries: {e}")
+
+            await asyncio.sleep(DELAY)
+
+    # Final hash check
     if not await compare_either_hash(file_path, firmware):
         logger.warning(f"Hash mismatch for {file_path}")
 

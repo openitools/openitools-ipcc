@@ -37,22 +37,23 @@ async def write_with_progress(
     resp: aiohttp.ClientResponse,
     file_path: Path,
     total_bytes: int,
-    chunk_size: int = 8_192,
+    chunk_size: int,
 ) -> None:
     """Helper to write response.content → disk with a tqdm bar."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Writing file to {file_path} with {total_bytes} chunked at {chunk_size:,}")
 
+    open_mode = "ab" if file_path.exists() and file_path.stat().st_size > chunk_size else "wb"
+
     # IPSW writes are large and async file libs
     # often perform worse than plain open().
     with (
-        open(file_path, "wb") as f,
+        open(file_path, open_mode) as f,
         tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
     ):
         async for chunk in resp.content.iter_chunked(chunk_size):
 
-            wrote = f.write(chunk)
-            bar.set_description(f"{file_path.name}: down = {len(chunk) }-> {wrote = }", refresh=False)
+            f.write(chunk)
             bar.update(len(chunk))
 
             # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
