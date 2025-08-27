@@ -119,7 +119,12 @@ async def download_file(
 
             break
         except Exception as e:
+            
+            logger.warning(f"Downloading failed with: {e}")
+            logger.warning(f"Last Content Length: {last_content_length}")
+            logger.warning(f"File Size: {file_path.stat().st_size or '?'}")
 
+            logger.warning("Retrying..")
             if attempt == MAX_RETRIES:
                 await cleanup_file(file_path)
 
