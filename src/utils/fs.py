@@ -1,6 +1,5 @@
 import asyncio
 import glob
-import itertools
 import json
 import shutil
 from datetime import UTC, datetime
@@ -34,8 +33,6 @@ async def is_file_ready(file_path: Path, firmware: Firmware) -> bool:
 
     return False
 
-one_downloader = asyncio.Lock()
-
 async def write_with_progress(
     resp: aiohttp.ClientResponse,
     file_path: Path,
@@ -44,6 +41,7 @@ async def write_with_progress(
 ) -> None:
     """Helper to write response.content → disk with a tqdm bar."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.debug(f"Writing file to {file_path} with {total_bytes} chunked at {chunk_size:,}")
 
     # IPSW writes are large and async file libs
     # often perform worse than plain open().
@@ -51,23 +49,14 @@ async def write_with_progress(
         open(file_path, "wb") as f,
         tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
     ):
-        while True:
-            async with one_downloader:
-                # read 5 times per lock, instead of locking and releasing everytime
-                for _ in itertools.repeat(None, 5):
-                    chunk = await resp.content.read(chunk_size)
-                    if not chunk:
-                        break
+        async for chunk in resp.content.iter_chunked(chunk_size):
 
-                    f.write(chunk)
-                    bar.update(len(chunk))
-            
-        # async for chunk in resp.content.iter_chunked(chunk_size):
-        #     # # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
-        #     # await asyncio.sleep(0)
-        #
-        #     f.write(chunk)
-        #     bar.update(len(chunk))
+            wrote = f.write(chunk)
+            bar.set_description(f"{chunk = }-> {wrote =}")
+            bar.update(len(chunk))
+
+            # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
+            await asyncio.sleep(0) # Yield control to the event loop
 
 
 async def cleanup_file(file_path: Path) -> None:
