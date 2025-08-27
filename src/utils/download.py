@@ -35,7 +35,7 @@ async def get_response(
         headers["Range"] = f"bytes={file_size}"
         msg = f"resuming download from byte {file_size}"
 
-        if last_content_length:
+        if last_content_length is not None:
             msg += f", last remote content length: {last_content_length}"
 
         logger.info(msg)
