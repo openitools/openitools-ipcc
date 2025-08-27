@@ -317,6 +317,7 @@ async def tar_and_hash_bundles(
 async def bake_ipcc(
     firmware: Firmware,
     session: aiohttp.ClientSession,
+    git_mode: bool
 ) -> bool:
     """Process firmware to extract IPCC files."""
     base_path = Path(firmware.identifier)
@@ -354,7 +355,7 @@ async def bake_ipcc(
 
         # Download IPSW file
         ipsw_result = await download_file(
-            firmware, version_path, session, ignored_firmwares_metadata_path
+                firmware, version_path, session, ignored_firmwares_metadata_path, git_mode
         )
         if isinstance(ipsw_result, Error):
             raise RuntimeError(ipsw_result)
@@ -445,7 +446,7 @@ async def fetch_and_bake(
                 processed_count = 0
 
                 for firmware in parsed_data.firmwares:
-                    if await bake_ipcc(firmware, session):
+                    if await bake_ipcc(firmware, session, git_mode):
                         processed_count += 1
                         if git_mode:
                             git_result = await process_files_with_git(
