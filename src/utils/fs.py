@@ -50,6 +50,9 @@ async def write_with_progress(
         tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
     ):
         async for chunk in resp.content.iter_chunked(chunk_size):
+            # https://stackoverflow.com/questions/56346811/response-payload-is-not-completed-using-asyncio-aiohttp/69085205#69085205
+            await asyncio.sleep(0)
+
             f.write(chunk)
             bar.update(len(chunk))
 
