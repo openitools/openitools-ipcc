@@ -22,7 +22,8 @@ async def get_response(
     git_mode: bool,
     file_path: Path,
 ) -> Result[aiohttp.ClientResponse, str]:
-    file_size = file_path.stat().st_size
+    file_size = 0 if not file_path.exists() else file_path.stat().st_size
+
     headers = {}
     if file_size > CHUNK_SIZE:
         headers["Range"] = f"bytes={file_size}"
