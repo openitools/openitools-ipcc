@@ -197,7 +197,7 @@ async def extract_the_biggest_dmg(
                 return Error(f"ZIP extraction error: {str(zip_error)}")
 
         # Handle AEA decryption if needed
-        if biggest_dmg_file_path and "aea" in biggest_dmg_file_path.suffixes:
+        if biggest_dmg_file_path and ".aea" in biggest_dmg_file_path.suffixes:
             logger.info("Detected 'aea' in file suffix, starting decryption")
             handle_result = await handle_aea_dmg(
                 dmg_file, biggest_dmg_file_path, output
