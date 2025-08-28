@@ -50,7 +50,13 @@ async def write_with_progress(
     # often perform worse than plain open().
     with (
         open(file_path, "r+b" if file_path.exists() else "wb") as f,
-        tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
+        tqdm(
+            total=total_bytes, 
+            unit="B", 
+            unit_scale=True, 
+            desc=str(file_path),
+            initial=existing_size
+        ) as bar,
     ):
         # Move to resume position if file already partially written
         if existing_size > 0:
