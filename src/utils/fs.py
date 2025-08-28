@@ -43,14 +43,19 @@ async def write_with_progress(
     file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Writing file to {file_path} with {total_bytes} chunked at {chunk_size:,}")
 
-    open_mode = "ab" if file_path.exists() and file_path.stat().st_size > chunk_size else "wb"
+    existing_size = file_path.stat().st_size if file_path.exists() else 0
+
 
     # IPSW writes are large and async file libs
     # often perform worse than plain open().
     with (
-        open(file_path, open_mode) as f,
+        open(file_path, "r+b" if file_path.exists() else "wb") as f,
         tqdm(total=total_bytes, unit="B", unit_scale=True, desc=str(file_path)) as bar,
     ):
+        # Move to resume position if file already partially written
+        if existing_size > 0:
+            f.seek(existing_size)
+
         async for chunk in resp.content.iter_chunked(chunk_size):
 
             f.write(chunk)

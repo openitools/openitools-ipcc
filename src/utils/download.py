@@ -15,30 +15,32 @@ MAX_RETRIES = 3
 DELAY = 1
 CHUNK_SIZE = 8_192
 
+async def get_remote_file_size(session: aiohttp.ClientSession, url: str) -> int:
+    async with session.head(url) as response:
+        return int(response.headers.get("Content-Length", 0))
+
+
 async def get_response(
     firmware: Firmware,
     session: aiohttp.ClientSession,
     ignored_firmwares_file: Path,
     git_mode: bool,
     file_path: Path,
-    last_content_length: None | int
+    remote_file_size: int
 ) -> Result[aiohttp.ClientResponse, str]:
     file_size = file_path.stat().st_size if file_path.exists() else 0
     headers = {}
 
-    if last_content_length is not None and file_size >= last_content_length:
-        logger.warning(f"Local file bigger or equal than server file, local: {file_size}, server: {last_content_length}")
+
+    if remote_file_size is not None and file_size >= remote_file_size:
+        logger.warning(f"Local file bigger or equal than server file, local: {file_size}, server: {remote_file_size}")
 
         return Error("already good")
 
     if file_size > 0:
-        headers["Range"] = f"bytes={file_size}"
-        msg = f"resuming download from byte {file_size}"
+        headers["Range"] = f"bytes={file_size}-{remote_file_size - 1}"
 
-        if last_content_length is not None:
-            msg += f", last remote content length: {last_content_length}"
-
-        logger.info(msg)
+        logger.info(f"resuming download from byte {file_size}, remote file size: {remote_file_size}")
 
     try:
         resp = await session.get(
@@ -89,18 +91,17 @@ async def download_file(
     if await is_file_ready(file_path, firmware):
         return Ok(file_path)
 
-    last_content_length: int | None = None
+    remote_file_size = await get_remote_file_size(session, firmware.url)
 
     # retry resuming the download if error ocurred
     for attempt in range(1, MAX_RETRIES + 1):
 
-        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, last_content_length)
+        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, remote_file_size)
 
         if isinstance(response, Error):
             if "416" in response.error:
                 logger.warning("Got 416, deleting partial file and starting fresh")
                 await cleanup_file(file_path)
-                last_content_length = None
                 continue
 
             if response.error == "already good":
@@ -111,23 +112,14 @@ async def download_file(
 
         response = response.value
 
-        # Determine the total size for progress tracking
-        if "Content-Range" in response.headers:
-            last_content_length = int(response.headers["Content-Range"].split("/")[-1])
-        else:
-            last_content_length = int(response.headers.get("Content-Length", 0))
-
-        if last_content_length == 0:
-            logger.warning(f"No Content-Length available for {firmware.url}")
-
         try:
-            await write_with_progress(response, file_path, last_content_length, CHUNK_SIZE)
+            await write_with_progress(response, file_path, remote_file_size, CHUNK_SIZE)
 
             break
         except Exception as e:
             
             logger.warning(f"Downloading failed with: {e}")
-            logger.warning(f"Last Content Length: {last_content_length}")
+            logger.warning(f"Remote File Size: {remote_file_size}")
             logger.warning(f"File Size: {file_path.stat().st_size or '?'}")
 
             logger.warning("Retrying..")
