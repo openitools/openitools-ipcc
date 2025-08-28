@@ -11,7 +11,7 @@ from utils.fs import (cleanup_file, is_file_ready, put_metadata,
 from utils.git import process_files_with_git
 from utils.hash import compare_either_hash
 
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 DELAY = 1
 CHUNK_SIZE = 8_192
 
