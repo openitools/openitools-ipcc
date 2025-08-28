@@ -43,13 +43,10 @@ async def get_response(
         logger.info(f"resuming download from byte {file_size}, remote file size: {remote_file_size}")
 
     try:
-        async with await session.get(
-                        firmware.url, 
-                        timeout=aiohttp.ClientTimeout(total=1000), 
-                        headers=headers
-                        ) as resp:
-                resp.raise_for_status()
-
+        resp = await session.get(
+                firmware.url, timeout=aiohttp.ClientTimeout(total=1000), headers=headers
+        )
+        resp.raise_for_status()
     except aiohttp.ClientResponseError as e:
         # Service Unavailable, probably on old ios
         if e.status == 503:
@@ -132,6 +129,9 @@ async def download_file(
                 return Error(f"Error writing file after {MAX_RETRIES} retries: {e}")
 
             await asyncio.sleep(DELAY)
+
+        finally:
+            response.close()
 
     # Final hash check
     if not await compare_either_hash(file_path, firmware):
