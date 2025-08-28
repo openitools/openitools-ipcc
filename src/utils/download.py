@@ -43,10 +43,13 @@ async def get_response(
         logger.info(f"resuming download from byte {file_size}, remote file size: {remote_file_size}")
 
     try:
-        resp = await session.get(
-                firmware.url, timeout=aiohttp.ClientTimeout(total=1000), headers=headers
-        )
-        resp.raise_for_status()
+        async with await session.get(
+                        firmware.url, 
+                        timeout=aiohttp.ClientTimeout(total=1000), 
+                        headers=headers
+                        ) as resp:
+                resp.raise_for_status()
+
     except aiohttp.ClientResponseError as e:
         # Service Unavailable, probably on old ios
         if e.status == 503:
