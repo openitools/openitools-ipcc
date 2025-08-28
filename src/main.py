@@ -416,7 +416,6 @@ async def bake_ipcc(
 
 
 async def fetch_and_bake(
-    session: aiohttp.ClientSession,
     code: str,
     product: str,
     devices_semaphore: asyncio.Semaphore,
@@ -428,37 +427,38 @@ async def fetch_and_bake(
             model = f"{product}{code}"
             logger.info(f"Processing device {model}")
 
-            async with session.get(
-                f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
-            ) as response:
-                if response.status != 200:
-                    logger.error(
-                        f"Failed to fetch data for {model}: {await response.text()}"
-                    )
-                    return
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
+                ) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"Failed to fetch data for {model}: {await response.text()}"
+                        )
+                        return
 
-                parsed_data = Response.from_dict(await response.json())
-                if not parsed_data.firmwares:
-                    logger.warning(f"No firmwares found for {model}")
-                    return
+                    parsed_data = Response.from_dict(await response.json())
+                    if not parsed_data.firmwares:
+                        logger.warning(f"No firmwares found for {model}")
+                        return
 
-                processed_count = 0
-                # assuming there's at least one firmware
-                current_ident = parsed_data.firmwares[0].identifier
+                    processed_count = 0
+                    # assuming there's at least one firmware
+                    current_ident = parsed_data.firmwares[0].identifier
 
 
-                for firmware in parsed_data.firmwares:
-                    if await bake_ipcc(firmware, session, git_mode):
-                        processed_count += 1
-                        if git_mode:
-                            git_result = await process_files_with_git(firmware)
-                            if isinstance(git_result, Error):
-                                logger.error(
-                                    f"Git processing failed: {git_result.value}"
-                                )
+                    for firmware in parsed_data.firmwares:
+                        if await bake_ipcc(firmware, session, git_mode):
+                            processed_count += 1
+                            if git_mode:
+                                git_result = await process_files_with_git(firmware)
+                                if isinstance(git_result, Error):
+                                    logger.error(
+                                        f"Git processing failed: {git_result.value}"
+                                    )
 
-                if processed_count == 0:
-                    shutil.rmtree(current_ident, ignore_errors=True)
+                    if processed_count == 0:
+                        shutil.rmtree(current_ident, ignore_errors=True)
 
         except Exception as e:
             logger.error(
@@ -496,18 +496,17 @@ async def main() -> None:
 
     devices_semaphore = asyncio.Semaphore(args.concurrent_jobs)
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with asyncio.TaskGroup() as tg:
-                for product, codes in PRODUCT_CODES.items():
-                    for code in codes:
-                        tg.create_task(
-                            fetch_and_bake(
-                                session, code, product, devices_semaphore, args.git
-                            )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for product, codes in PRODUCT_CODES.items():
+                for code in codes:
+                    tg.create_task(
+                        fetch_and_bake(
+                            code, product, devices_semaphore, args.git
                         )
-        except Exception as e:
-            logger.error(f"Error in main task group: {str(e)}")
+                    )
+    except Exception as e:
+        logger.error(f"Error in main task group: {str(e)}")
 
 
 if __name__ == "__main__":
