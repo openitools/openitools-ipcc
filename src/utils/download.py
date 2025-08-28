@@ -118,11 +118,11 @@ async def download_file(
             break
         except Exception as e:
             
-            logger.warning(f"Downloading failed with: {e}")
-            logger.warning(f"Remote File Size: {remote_file_size}")
-            logger.warning(f"File Size: {file_path.stat().st_size or '?'}")
+            logger.debug(f"Downloading failed with: {e}")
+            logger.debug(f"Remote File Size: {remote_file_size}")
+            logger.debug(f"File Size: {file_path.stat().st_size or '?'}")
 
-            logger.warning("Retrying..")
+            logger.debug("Retrying..")
             if attempt == MAX_RETRIES:
                 await cleanup_file(file_path)
 
