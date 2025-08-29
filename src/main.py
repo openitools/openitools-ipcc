@@ -121,6 +121,18 @@ async def handle_aea_dmg(
 
     return Ok(biggest_dmg_file_path.parent / biggest_dmg_file_path.stem)
 
+async def get_biggest_dmg_file_in_zip(zip_file: zipfile.ZipFile) -> Result[zipfile.ZipInfo, str]:
+    biggest_dmg = max(
+            [file 
+             for file in zip_file.infolist() 
+             if file.filename.endswith((".dmg", ".dmg.aea"))
+             ], 
+            key=lambda file: file.file_size)
+
+    if not biggest_dmg:
+        return Error("No .dmg or .dmg.aea files found in the IPSW")
+
+    return Ok(biggest_dmg)
 
 async def extract_the_biggest_dmg(
     dmg_file: Path,
@@ -146,23 +158,21 @@ async def extract_the_biggest_dmg(
 
         with zipfile.ZipFile(dmg_file) as zip_file:
             # Find biggest DMG file
+
             try:
-                dmg_files = [
-                    f
-                    for f in zip_file.infolist()
-                    if f.filename.endswith((".dmg", ".dmg.aea"))
-                ]
-                if not dmg_files:
-                    error_msg = "No .dmg or .dmg.aea files found in the IPSW"
-                    logger.warning(error_msg)
+                biggest_dmg = await get_biggest_dmg_file_in_zip(zip_file)
+
+                if isinstance(biggest_dmg, Error):
+                    logger.warning(biggest_dmg.error)
+
                     await put_metadata(
                         ignored_firmwares_file,
                         "ignored",
                         lambda ign: (ign or []) + [firmware.version],
                     )
-                    return Error(error_msg)
+                    return biggest_dmg
 
-                biggest_dmg = max(dmg_files, key=lambda x: x.file_size)
+                biggest_dmg = biggest_dmg.value
                 biggest_dmg_file_path = output / biggest_dmg.filename
 
                 logger.debug(
