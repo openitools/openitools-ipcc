@@ -168,6 +168,18 @@ async def extract_the_biggest_dmg(
                     f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
                 )
 
+                class TqdmWriter:
+                    def __init__(self, target_file, progress_bar):
+                        self.target_file = target_file
+                        self.progress = progress_bar
+
+                    def write(self, b):
+                        self.target_file.write(b)
+                        self.progress.update(len(b))
+
+                    def flush(self):
+                        self.target_file.flush()
+
                 # Extract if needed
                 if (
                     not biggest_dmg_file_path.exists()
@@ -184,12 +196,15 @@ async def extract_the_biggest_dmg(
                             desc=f"Extracting {biggest_dmg.filename}",
                         ) as progress,
                     ):
-                        while True:
-                            chunk = source.read(8192)
-                            if not chunk:
-                                break
-                            target.write(chunk)
-                            progress.update(len(chunk))
+                        await asyncio.to_thread( lambda :
+                                shutil.copyfileobj(source, TqdmWriter(target, progress), length=16 * 1024 * 1024)  # 16MB buffer
+                        )
+                        # while True:
+                        #     chunk = source.read(8192)
+                        #     if not chunk:
+                        #         break
+                        #     target.write(chunk)
+                        #     progress.update(len(chunk))
                 else:
                     logger.info("Skipping DMG extraction (file already exists)")
 
