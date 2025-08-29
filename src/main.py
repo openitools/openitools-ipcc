@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import aiofiles
 import aiohttp
 from tqdm.asyncio import tqdm
 
@@ -168,43 +169,34 @@ async def extract_the_biggest_dmg(
                     f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
                 )
 
-                class TqdmWriter:
-                    def __init__(self, target_file, progress_bar):
-                        self.target_file = target_file
-                        self.progress = progress_bar
-
-                    def write(self, b):
-                        self.target_file.write(b)
-                        self.progress.update(len(b))
-
-                    def flush(self):
-                        self.target_file.flush()
-
                 # Extract if needed
                 if (
                     not biggest_dmg_file_path.exists()
                     or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
                 ) and not skip_extraction:
                     logger.info(f"Extracting {biggest_dmg.filename} to {output}")
-                    with (
-                        zip_file.open(biggest_dmg) as source,
-                        open(biggest_dmg_file_path, "wb") as target,
-                        tqdm(
+
+                    progress = tqdm(
                             total=biggest_dmg.file_size,
                             unit="B",
                             unit_scale=True,
                             desc=f"Extracting {biggest_dmg.filename}",
-                        ) as progress,
-                    ):
-                        await asyncio.to_thread( lambda :
-                                shutil.copyfileobj(source, TqdmWriter(target, progress), length=16 * 1024 * 1024)  # 16MB buffer
-                        )
-                        # while True:
-                        #     chunk = source.read(8192)
-                        #     if not chunk:
-                        #         break
-                        #     target.write(chunk)
-                        #     progress.update(len(chunk))
+                        ) 
+
+                    source = zip_file.open(biggest_dmg)
+
+                    async with aiofiles.open(biggest_dmg_file_path, "wb") as target:
+                        while True:
+                            chunk = await asyncio.to_thread(source.read, 16 * 1024 * 1024)
+                            if not chunk:
+                                break
+
+                            await target.write(chunk)
+                            progress.update(len(chunk))
+
+                    progress.close()
+                    source.close()
+
                 else:
                     logger.info("Skipping DMG extraction (file already exists)")
 
