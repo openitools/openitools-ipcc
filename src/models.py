@@ -39,9 +39,9 @@ class Firmware:
     uploaddate: datetime | None
     signed: bool
 
-    @staticmethod
-    def from_dict(data: dict) -> "Firmware":
-        return Firmware(
+    @classmethod
+    def from_dict(cls, data: dict) -> "Firmware":
+        return cls(
             identifier=data["identifier"],
             version=data["version"],
             buildid=data["buildid"],
@@ -69,9 +69,9 @@ class Response:
     cpid: int
     bdid: int
 
-    @staticmethod
-    def from_dict(data: dict) -> "Response":
-        return Response(
+    @classmethod
+    def from_dict(cls, data: dict) -> "Response":
+        return cls(
             name=data["name"],
             identifier=data["identifier"],
             firmwares=[Firmware.from_dict(fw) for fw in data["firmwares"]],
