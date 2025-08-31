@@ -1,4 +1,6 @@
+import asyncio
 import plistlib
+import random
 import zipfile
 from pathlib import Path
 
@@ -9,12 +11,22 @@ from models import Error, Ok, Result
 from utils import vfdecrypt
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
 }
 
+USER_AGENTS = [
+    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+]
 
 def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
     if isinstance(plist_data, dict):
@@ -102,15 +114,22 @@ async def _extract_encrypted_dmg(dmg_file: Path, key: str) -> Result[None, str]:
 
 
 async def _fetch_html(session, url) -> Result[str, str]:
+
+    # random User-Agent
+    headers = HEADERS | {"User-Agent": random.choice(USER_AGENTS)}
+
+    # a bit of a delay
+    await asyncio.sleep(random.uniform(1.0, 3.0))
+
     try:
-        async with session.get(url, headers=HEADERS, timeout=30) as response:
+        async with session.get(url, headers=headers, timeout=30) as response:
             text: str = await response.text()
 
             if response.status == 200:
                 return Ok(text)
             else:
                 return Error(
-                    f"Failed to fetch {url}: HTTP {response.status}, error: {text}"
+                    f"Failed to fetch {url}: HTTP {response.status}, error:\n\n {text}"
                 )
     except Exception as e:
         return Error(str(e))
