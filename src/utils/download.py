@@ -100,7 +100,7 @@ async def download_file(
 
         if isinstance(response, Error):
             # access denied
-            if remote_file_size == 0 and "403" in response.error:
+            if remote_file_size == 0 or "403" in response.error:
                 await put_metadata(
                         ignored_firmwares_file,
                         "ignored",
