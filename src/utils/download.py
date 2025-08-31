@@ -106,6 +106,7 @@ async def download_file(
                         "ignored",
                         lambda ign: (ign or []) + [firmware.version],
                 )
+                return Error("apple ipsw servers replied with access denied")
 
             if "416" in response.error:
                 logger.warning("Got 416, deleting partial file and starting fresh")
