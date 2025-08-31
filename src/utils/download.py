@@ -99,6 +99,14 @@ async def download_file(
         response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, remote_file_size)
 
         if isinstance(response, Error):
+            # access denied
+            if remote_file_size == 0 and "403" in response.error:
+                await put_metadata(
+                        ignored_firmwares_file,
+                        "ignored",
+                        lambda ign: (ign or []) + [firmware.version],
+                )
+
             if "416" in response.error:
                 logger.warning("Got 416, deleting partial file and starting fresh")
                 await cleanup_file(file_path)
