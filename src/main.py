@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 import aiofiles
 import aiohttp
+from aiohttp_socks import ProxyConnector
 from tqdm.asyncio import tqdm
 
 from models import BundleMetadata, Error, Firmware, Ok, Response, Result
@@ -448,7 +449,9 @@ async def fetch_and_bake(
             model = f"{product}{code}"
             logger.info(f"Processing device {model}")
 
-            async with aiohttp.ClientSession(proxy=PROXY) as session:
+
+            connector = ProxyConnector.from_url(PROXY) if PROXY else None
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(
                     f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
                 ) as response:

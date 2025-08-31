@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 
 import aiohttp
+from aiohttp_socks import ProxyConnector
 from bs4 import BeautifulSoup
 
 from models import Error, Ok, Result
@@ -50,9 +51,12 @@ def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
 
 
 async def _fetch_key(
-        build_train: str, build_id: str, identifier: str, http_proxy: str
+        build_train: str, build_id: str, identifier: str, proxy: str | None = None
 ) -> Result[str, str]:
-    async with aiohttp.ClientSession(proxy=http_proxy) as session:
+
+    connector = ProxyConnector.from_url(proxy) if proxy else None
+
+    async with aiohttp.ClientSession(connector=connector) as session:
         html = await _fetch_html(
             session,
             f"https://theapplewiki.com/wiki/Keys:{build_train}_{build_id}_({identifier})",
@@ -70,7 +74,7 @@ async def _fetch_key(
 
 
 async def decrypt_dmg(
-        ipsw_file: Path, dmg_file: Path, build_id: str, identifier: str, http_proxy: str
+        ipsw_file: Path, dmg_file: Path, build_id: str, identifier: str, proxy: str | None = None
 ) -> Result[None, str]:
     with zipfile.ZipFile(ipsw_file) as zip_file:
         with zip_file.open("BuildManifest.plist") as bmplist:
@@ -80,7 +84,7 @@ async def decrypt_dmg(
             if isinstance(build_train, Error):
                 return Error("BuildTrain was not found in the BuildManifest.plist file")
 
-    key = await _fetch_key(build_train.value, build_id, identifier, http_proxy)
+    key = await _fetch_key(build_train.value, build_id, identifier, proxy)
 
     if isinstance(key, Error):
         return key
