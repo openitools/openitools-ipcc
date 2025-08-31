@@ -69,6 +69,26 @@ class Response:
     cpid: int
     bdid: int
 
+    def set_firmwares_offset(self, offset: int) -> None:
+        """
+        reduces the firmwares by choping off the `offset` amount from the firmwares list starting at the oldest
+
+        usefull if you don't want to deal with old firmwares nor check it at all
+        """
+
+        # firmwares are sorted from the API
+        # 
+        # old firmwares are at the end of the list
+        self.firmwares = self.firmwares[:-offset]
+
+
+    @classmethod
+    def from_dict_with_offset(cls, data: dict, offset: int) -> "Response":
+        response = cls.from_dict(data)
+        response.set_firmwares_offset(offset)
+
+        return response
+
     @classmethod
     def from_dict(cls, data: dict) -> "Response":
         return cls(

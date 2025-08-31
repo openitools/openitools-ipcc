@@ -437,6 +437,7 @@ async def fetch_and_bake(
     product: str,
     devices_semaphore: asyncio.Semaphore,
     git_mode: bool,
+    firmware_offset: int
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
@@ -454,7 +455,8 @@ async def fetch_and_bake(
                         )
                         return
 
-                    parsed_data = Response.from_dict(await response.json())
+                    parsed_data = Response.from_dict_with_offset(await response.json(), firmware_offset)
+
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -487,12 +489,13 @@ async def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser("OpeniTools-IPCC")
     parser.add_argument(
-        "--git",
         "-g",
+        "--git",
         help="Upload the files to Github (setup your git before)",
         action="store_true",
         default=False,
     )
+
     parser.add_argument(
         "-j",
         "--concurrent-jobs",
@@ -500,10 +503,29 @@ async def main() -> None:
         type=int,
         default=3,
     )
+
+    parser.add_argument(
+        "--firmware-offset",
+        help="Set a firmware offset for each product (e.g 10; to skip the oldset 10 firmwares for every product)",
+        type=int,
+        default=0,
+    )
+
+
+    parser.add_argument(
+        "--product-offset",
+        help="Set a product offset for both iPhones and iPads (e.g 10; to skip the oldset 10 devices)",
+        type=int,
+        default=0,
+    )
+
     args = parser.parse_args()
 
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
+
+    for product in PRODUCT_CODES:
+        PRODUCT_CODES[product] = PRODUCT_CODES[product][:-args.product_offset]
 
     if args.git:
         stdout, stderr, return_code = await run_command("git switch files")
@@ -519,7 +541,7 @@ async def main() -> None:
                 for code in codes:
                     tg.create_task(
                         fetch_and_bake(
-                            code, product, devices_semaphore, args.git
+                            code, product, devices_semaphore, args.git, args.firmware_offset
                         )
                     )
     except Exception as e:
