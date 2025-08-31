@@ -33,6 +33,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PROXY: str | None = None
+
 PRODUCT_CODES: Dict[str, List[str]] = {
     "iPhone": [
         "14,6", "14,5", "14,4", "14,3", "14,2", 
@@ -259,6 +261,7 @@ async def extract_the_biggest_dmg(
                     biggest_dmg_file_path,
                     firmware.buildid,
                     firmware.identifier,
+                    PROXY
                 )
                 if isinstance(decrypt_result, Error):
                     return Error(f"Unable to extract the DMG: {decrypt_result}")
@@ -437,7 +440,7 @@ async def fetch_and_bake(
     product: str,
     devices_semaphore: asyncio.Semaphore,
     git_mode: bool,
-    firmware_offset: int
+    firmware_offset: int,
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
@@ -445,7 +448,7 @@ async def fetch_and_bake(
             model = f"{product}{code}"
             logger.info(f"Processing device {model}")
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(proxy=PROXY) as session:
                 async with session.get(
                     f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
                 ) as response:
@@ -495,6 +498,15 @@ async def main() -> None:
         default=False,
     )
 
+
+    parser.add_argument(
+        "--proxy",
+        help="Set a proxy for every http request",
+        type=str,
+        default=None,
+    )
+
+
     parser.add_argument(
         "-j",
         "--concurrent-jobs",
@@ -522,6 +534,10 @@ async def main() -> None:
 
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
+
+    if args.proxy is not None:
+        global PROXY
+        PROXY = args.proxy
 
     if args.product_offset > 0:
         for product in PRODUCT_CODES:
