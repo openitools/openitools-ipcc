@@ -79,7 +79,8 @@ class Response:
         # firmwares are sorted from the API
         # 
         # old firmwares are at the end of the list
-        self.firmwares = self.firmwares[:-offset]
+        if offset > 0:
+            self.firmwares = self.firmwares[:-offset]
 
 
     @classmethod

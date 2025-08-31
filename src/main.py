@@ -456,7 +456,6 @@ async def fetch_and_bake(
                         return
 
                     parsed_data = Response.from_dict_with_offset(await response.json(), firmware_offset)
-
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -524,8 +523,9 @@ async def main() -> None:
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
 
-    for product in PRODUCT_CODES:
-        PRODUCT_CODES[product] = PRODUCT_CODES[product][:-args.product_offset]
+    if args.product_offset > 0:
+        for product in PRODUCT_CODES:
+            PRODUCT_CODES[product] = PRODUCT_CODES[product][:-args.product_offset]
 
     if args.git:
         stdout, stderr, return_code = await run_command("git switch files")
