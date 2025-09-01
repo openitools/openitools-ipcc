@@ -82,6 +82,22 @@ class Response:
         if offset > 0:
             self.firmwares = self.firmwares[:-offset]
 
+    def set_oldest_firmware(self, oldest: int | None) -> None:
+        if oldest is None:
+            return
+        self.firmwares = [
+            f for f in self.firmwares
+            if int(f.version.split(".")[0]) >= oldest
+        ]
+        
+    @classmethod
+    def from_dict_with_offset_and_firmware_limit(cls, data: dict, offset: int, oldest: int | None) -> "Response":
+        response = cls.from_dict_with_offset(data, offset)
+        response.set_oldest_firmware(oldest)
+
+        return response
+
+
 
     @classmethod
     def from_dict_with_offset(cls, data: dict, offset: int) -> "Response":

@@ -442,6 +442,7 @@ async def fetch_and_bake(
     devices_semaphore: asyncio.Semaphore,
     git_mode: bool,
     firmware_offset: int,
+    oldest_checked_firmware: int | None = None
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
@@ -461,7 +462,7 @@ async def fetch_and_bake(
                         )
                         return
 
-                    parsed_data = Response.from_dict_with_offset(await response.json(), firmware_offset)
+                    parsed_data = Response.from_dict_with_offset_and_firmware_limit(await response.json(), firmware_offset, oldest_checked_firmware)
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -527,6 +528,14 @@ async def main() -> None:
 
 
     parser.add_argument(
+        "--oldest-checked-firmware",
+        help="Set the oldest firmware to be checked (e.g 12; to only check from ios 12 and upword)",
+        type=int,
+        default=None,
+    )
+
+
+    parser.add_argument(
         "--product-offset",
         help="Set a product offset for both iPhones and iPads (e.g 10; to skip the oldset 10 devices)",
         type=int,
@@ -560,7 +569,7 @@ async def main() -> None:
                 for code in codes:
                     tg.create_task(
                         fetch_and_bake(
-                            code, product, devices_semaphore, args.git, args.firmware_offset
+                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware
                         )
                     )
     except Exception as e:
