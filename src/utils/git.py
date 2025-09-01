@@ -5,6 +5,7 @@ import aiofiles
 
 from models import Firmware
 from utils import logger
+from utils.fs import put_metadata
 from utils.shell import run_command
 
 # only one can upload and use git
@@ -12,13 +13,17 @@ GIT_LOCK = asyncio.Lock()
 
 
 async def process_files_with_git(
-    firmware: Firmware, message: str = "added {version} ipcc files for {ident}"
+        firmware: Firmware, message: str = "added {version} ipcc files for {ident}", sparse_checkout_path: str | None = None, add_path: str | None = None
 ):
     logger.debug("waiting for the git lock")
     async with GIT_LOCK:
-        # disable sparse rules temporary
-        await run_command(f"git sparse-checkout add '{firmware.identifier}/{firmware.version}/*'")
-        await run_command(f"git add {firmware.identifier}")
+        # allow the will be pushed dir
+        if sparse_checkout_path:
+            await run_command(f"git sparse-checkout add '{sparse_checkout_path.format(ident=firmware.identifier, version=firmware.version)}'")
+        else:
+            await run_command(f"git sparse-checkout add '{firmware.identifier}/{firmware.version}/*'")
+
+        await run_command(f"git add {add_path if add_path else firmware.identifier}")
 
         # await run_command("git stash push")
         #
@@ -47,6 +52,14 @@ async def process_files_with_git(
         await run_command("git push origin files")
         # await run_command("git switch main")
 
+async def ignore_firmware(ignored_firmwares_file: Path, firmware: Firmware):
+    await put_metadata(
+            ignored_firmwares_file,
+            "ignored",
+            lambda ign: (ign or []) + [firmware.version],
+    )
+
+    await process_files_with_git(firmware, message="Ignored {version} for {ident}", sparse_checkout_path=f"{ignored_firmwares_file}")
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     try:

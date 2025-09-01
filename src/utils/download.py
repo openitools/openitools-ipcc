@@ -6,9 +6,8 @@ import aiohttp
 
 from models import Error, Firmware, Ok, Result
 from utils import logger
-from utils.fs import (cleanup_file, is_file_ready, put_metadata,
-                      write_with_progress)
-from utils.git import process_files_with_git
+from utils.fs import cleanup_file, is_file_ready, write_with_progress
+from utils.git import ignore_firmware, process_files_with_git
 from utils.hash import compare_either_hash
 
 MAX_RETRIES = 5
@@ -50,11 +49,7 @@ async def get_response(
     except aiohttp.ClientResponseError as e:
         # Service Unavailable, probably on old ios
         if e.status == 503:
-            await put_metadata(
-                ignored_firmwares_file,
-                "ignored",
-                lambda ign: (ign or []) + [firmware.version],
-            )
+            await ignore_firmware(ignored_firmwares_file, firmware)
 
             shutil.rmtree(
                 Path(firmware.identifier) / firmware.version, ignore_errors=True
@@ -101,11 +96,7 @@ async def download_file(
         if isinstance(response, Error):
             # access denied
             if remote_file_size == 0 or "403" in response.error:
-                await put_metadata(
-                        ignored_firmwares_file,
-                        "ignored",
-                        lambda ign: (ign or []) + [firmware.version],
-                )
+                await ignore_firmware(ignored_firmwares_file, firmware)
                 return Error("apple ipsw servers replied with access denied")
 
             if "416" in response.error:

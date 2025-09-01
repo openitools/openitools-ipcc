@@ -22,7 +22,7 @@ from utils.download import download_file
 from utils.fs import (bundles_glob, delete_non_bundles,
                       is_firmware_version_done, is_firmware_version_ignored,
                       put_metadata, system_has_parent)
-from utils.git import process_files_with_git
+from utils.git import ignore_firmware, process_files_with_git
 from utils.hash import calculate_hash
 from utils.helpers import install_ipsw
 from utils.shell import run_command
@@ -168,11 +168,7 @@ async def extract_the_biggest_dmg(
                 if isinstance(biggest_dmg, Error):
                     logger.warning(biggest_dmg.error)
 
-                    await put_metadata(
-                        ignored_firmwares_file,
-                        "ignored",
-                        lambda ign: (ign or []) + [firmware.version],
-                    )
+                    await ignore_firmware(ignored_firmwares_file, firmware)
                     return biggest_dmg
 
                 biggest_dmg = biggest_dmg.value
