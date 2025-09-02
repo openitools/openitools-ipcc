@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 
 class _ProxyTarget(Enum):
-    Scrape = auto()
+    Scraping = auto()
     IPSW = auto()
     All = auto()
 
@@ -15,7 +15,7 @@ class _ProxyTarget(Enum):
         return self.is_scrape() or self.is_all()
 
     def is_scrape(self) -> bool:
-        return self.name == "Scrape"
+        return self.name == "Scraping"
 
     def is_ipsw(self) -> bool:
         return self.name == "IPSW"
@@ -26,8 +26,8 @@ class _ProxyTarget(Enum):
     @classmethod
     def from_str(cls, value: str) -> "_ProxyTarget":
         match value:
-            case "scrape":
-                return cls.Scrape
+            case "scraping":
+                return cls.Scraping
             case "ipsw":
                 return cls.IPSW
             case "all":
