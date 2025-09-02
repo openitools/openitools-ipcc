@@ -94,6 +94,14 @@ class Response:
             f for f in self.firmwares if int(f.version.split(".")[0]) >= oldest
         ]
 
+    def set_max_firmware(self, newest: int | None) -> None:
+        if newest is None:
+            return
+
+        self.firmwares = [
+            f for f in self.firmwares if int(f.version.split(".")[0]) <= newest
+        ]
+
     @classmethod
     def from_dict(cls, data: dict) -> "Response":
         response = cls(
@@ -108,6 +116,7 @@ class Response:
 
         response.set_firmwares_skip(cfg.firmware_skip)
         response.set_min_firmware(cfg.min_firmware)
+        response.set_max_firmware(cfg.max_firmware)
 
         if cfg.product is not None:
             response.firmwares = [

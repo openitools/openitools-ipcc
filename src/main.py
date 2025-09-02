@@ -495,8 +495,6 @@ async def fetch_and_bake(
 
 
 async def main() -> None:
-    """Main entry point."""
-
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
 

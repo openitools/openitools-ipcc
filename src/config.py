@@ -15,6 +15,7 @@ class _Config:
     firmware: str | None
 
     min_firmware: int | None
+    max_firmware: int | None
 
     retry_ignored: bool
     reprocess: bool
@@ -66,6 +67,13 @@ class _Config:
         )
 
         parser.add_argument(
+            "--max-firmware",
+            help="Check only firmwares from this version downwards (e.g., 18).",
+            type=int,
+            default=None,
+        )
+
+        parser.add_argument(
             "--product",
             help="Process only this product (e.g., iPhone9,1). Defaults to all products.",
             type=str,
@@ -112,6 +120,7 @@ class _Config:
             args.product,
             args.firmware,
             args.min_firmware,
+            args.max_firmware,
             args.retry_ignored,
             args.reprocess,
         )
