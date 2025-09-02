@@ -589,8 +589,11 @@ async def main() -> None:
     if args_product is not None:
         if args_product.startswith("iPhone"):
             PRODUCT_CODES["iPhone"] = [args_product.removeprefix("iPhone")]
+            del PRODUCT_CODES["iPad"]
+
         elif args_product.startswith("iPad"):
             PRODUCT_CODES["iPad"] = [args_product.removeprefix("iPad")]
+            del PRODUCT_CODES["iPhone"]
 
     if args.git:
         stdout, stderr, return_code = await run_command("git switch files")
