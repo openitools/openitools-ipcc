@@ -1,11 +1,48 @@
 import argparse
 from dataclasses import dataclass
+from enum import Enum, auto
+
+
+class _ProxyTarget(Enum):
+    Scrape = auto()
+    IPSW = auto()
+    All = auto()
+
+    def is_ipsw_or_all(self) -> bool:
+        return self.is_ipsw() or self.is_all()
+
+    def is_scrape_or_all(self) -> bool:
+        return self.is_scrape() or self.is_all()
+
+    def is_scrape(self) -> bool:
+        return self.name == "Scrape"
+
+    def is_ipsw(self) -> bool:
+        return self.name == "IPSW"
+
+    def is_all(self) -> bool:
+        return self.name == "All"
+
+    @classmethod
+    def from_str(cls, value: str) -> "_ProxyTarget":
+        match value:
+            case "scrape":
+                return cls.Scrape
+            case "ipsw":
+                return cls.IPSW
+            case "all":
+                return cls.All
+            case _:
+                return cls.All
 
 
 @dataclass
 class _Config:
     upload_github: bool
+
     http_proxy: str | None
+    proxy_target: _ProxyTarget
+
     jobs: int
 
     firmware_skip: int
@@ -35,6 +72,13 @@ class _Config:
             help="Proxy URL for all HTTP requests.",
             type=str,
             default=None,
+        )
+
+        parser.add_argument(
+            "--proxy-target",
+            choices=["scraping", "ipsw", "all"],
+            help="Where to apply the proxy (scraping, ipsw, or all)",
+            default="all",
         )
 
         parser.add_argument(
@@ -111,9 +155,13 @@ class _Config:
 
         args = parser.parse_args()
 
+        if args.proxy_target and not args.http_proxy:
+            parser.error("--http-proxy must be provided if --proxy-target is specified")
+
         return cls(
             args.upload_github,
             args.http_proxy,
+            _ProxyTarget.from_str(args.proxy_target),
             args.jobs,
             args.firmware_skip,
             args.product_skip,

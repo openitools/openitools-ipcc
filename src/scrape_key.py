@@ -55,7 +55,11 @@ def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
 async def _fetch_key(
     build_train: str, build_id: str, identifier: str
 ) -> Result[str, str]:
-    connector = ProxyConnector.from_url(cfg.http_proxy) if cfg.http_proxy else None
+    connector = (
+        ProxyConnector.from_url(cfg.http_proxy)
+        if cfg.http_proxy and cfg.proxy_target.is_scrape_or_all()
+        else None
+    )
 
     async with aiohttp.ClientSession(connector=connector) as session:
         html = await _fetch_html(

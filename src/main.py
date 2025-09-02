@@ -453,7 +453,9 @@ async def fetch_and_bake(
             logger.info(f"Processing device {model}")
 
             connector = (
-                ProxyConnector.from_url(cfg.http_proxy) if cfg.http_proxy else None
+                ProxyConnector.from_url(cfg.http_proxy)
+                if cfg.http_proxy and cfg.proxy_target.is_ipsw_or_all()
+                else None
             )
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(
