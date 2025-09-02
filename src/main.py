@@ -467,7 +467,8 @@ async def fetch_and_bake(
 
                     parsed_data = Response.from_dict_with_offset_and_firmware_limit(await response.json(), firmware_offset, oldest_checked_firmware)
 
-                    parsed_data.firmwares = [f for f in parsed_data.firmwares if f.version == only_firmware]
+                    if only_firmware is not None:
+                        parsed_data.firmwares = [f for f in parsed_data.firmwares if f.version == only_firmware]
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
