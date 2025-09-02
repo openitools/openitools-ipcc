@@ -11,7 +11,7 @@ class _ProxyTarget(Enum):
     def is_ipsw_or_all(self) -> bool:
         return self.is_ipsw() or self.is_all()
 
-    def is_scrape_or_all(self) -> bool:
+    def is_scraping_or_all(self) -> bool:
         return self.is_scrape() or self.is_all()
 
     def is_scrape(self) -> bool:

@@ -57,7 +57,7 @@ async def _fetch_key(
 ) -> Result[str, str]:
     connector = (
         ProxyConnector.from_url(cfg.http_proxy)
-        if cfg.http_proxy and cfg.proxy_target.is_scrape_or_all()
+        if cfg.http_proxy and cfg.proxy_target.is_scraping_or_all()
         else None
     )
 
