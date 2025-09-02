@@ -17,6 +17,7 @@ class _Config:
     min_firmware: int | None
 
     retry_ignored: bool
+    reprocess: bool
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -85,6 +86,13 @@ class _Config:
             default=False,
         )
 
+        parser.add_argument(
+            "--reprocess",
+            help="Process everything all over again even if already done (usefull with the --product and --firmware)",
+            action="store_true",
+            default=False,
+        )
+
         return parser
 
     @classmethod
@@ -105,6 +113,7 @@ class _Config:
             args.firmware,
             args.min_firmware,
             args.retry_ignored,
+            args.reprocess,
         )
 
 

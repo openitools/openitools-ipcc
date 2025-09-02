@@ -363,7 +363,20 @@ async def bake_ipcc(
 
         # Check if version already processed
         if await is_firmware_version_done(base_metadata_path, firmware.version):
-            return False
+            if not cfg.reprocess:
+                return False
+
+            await put_metadata(
+                base_metadata_path,
+                "fw",
+                lambda firmwares: [
+                    f for f in (firmwares or []) if f.version != firmware.version
+                ],
+            )
+
+            # delete the version dir and make it again
+            shutil.rmtree(version_path, ignore_errors=True)
+            version_path.mkdir(exist_ok=True)
 
         # Download IPSW file
         ipsw_result = await download_file(
