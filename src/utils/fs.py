@@ -209,7 +209,7 @@ async def _get_metadata_json(file_path: Path) -> Dict[str, Any]:
 async def is_firmware_version_ignored(file_path: Path, firm_version: str) -> bool:
     metadata = await _get_metadata_json(file_path)
 
-    firmware_list: List[str] = metadata.get("ignored", [])
+    firmware_list: List[str] = metadata.get("ignored") or []
 
     for fm in firmware_list:
         try:
