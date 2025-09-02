@@ -370,7 +370,11 @@ async def bake_ipcc(
                 return False
 
             # remove it from the ignored in an attempt to retry processing it again
-            await put_metadata(ignored_firmwares_metadata_path, "ignored", lambda firmwares: (firmwares or []).remove(firmware.version))
+            await put_metadata(
+                ignored_firmwares_metadata_path,
+                "ignored",
+                lambda firmwares: [f for f in (firmwares or []) if f != firmware.version]
+            )
 
         # Check if version already processed
         if await is_firmware_version_done(base_metadata_path, firmware.version):
