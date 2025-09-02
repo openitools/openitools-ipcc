@@ -334,7 +334,8 @@ async def tar_and_hash_bundles(
 async def bake_ipcc(
     firmware: Firmware,
     session: aiohttp.ClientSession,
-    git_mode: bool
+    git_mode: bool,
+    retry_ignored_firmwares: bool
 ) -> bool:
     """Process firmware to extract IPCC files."""
     base_path = Path(firmware.identifier)
@@ -363,8 +364,12 @@ async def bake_ipcc(
         if await is_firmware_version_ignored(
             ignored_firmwares_metadata_path, firmware.version
         ):
-            shutil.rmtree(version_path, ignore_errors=True)
-            return False
+            if not retry_ignored_firmwares:
+                shutil.rmtree(version_path, ignore_errors=True)
+                return False
+
+            # remove it from the ignored in an attempt to retry processing it again
+            await put_metadata(ignored_firmwares_metadata_path, "ignored", lambda firmwares: (firmwares or []).remove(firmware.version))
 
         # Check if version already processed
         if await is_firmware_version_done(base_metadata_path, firmware.version):
@@ -439,7 +444,8 @@ async def fetch_and_bake(
     git_mode: bool,
     firmware_offset: int,
     oldest_checked_firmware: int | None = None, 
-    only_firmware: str | None = None
+    only_firmware: str | None = None,
+    retry_ignored_firmwares: bool = False
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
@@ -461,7 +467,7 @@ async def fetch_and_bake(
 
                     parsed_data = Response.from_dict_with_offset_and_firmware_limit(await response.json(), firmware_offset, oldest_checked_firmware)
 
-                    parsed_data.firmwares = list(filter(lambda f: f.version != only_firmware, parsed_data.firmwares))
+                    parsed_data.firmwares = [f for f in parsed_data.firmwares if f.version == only_firmware]
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -472,7 +478,7 @@ async def fetch_and_bake(
 
 
                     for firmware in parsed_data.firmwares:
-                        if await bake_ipcc(firmware, session, git_mode):
+                        if await bake_ipcc(firmware, session, git_mode, retry_ignored_firmwares):
                             processed_count += 1
                             if git_mode:
                                 git_result = await process_files_with_git(firmware)
@@ -557,6 +563,14 @@ async def main() -> None:
     )
 
 
+    parser.add_argument(
+        "--retry-ignored-firmwares",
+        help="Tries to proccess ignored firmwares again",
+        action="store_true",
+        default=False,
+    )
+
+
     args = parser.parse_args()
 
     # Change to parent directory
@@ -592,7 +606,7 @@ async def main() -> None:
                 for code in codes:
                     tg.create_task(
                         fetch_and_bake(
-                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware, args.firmware
+                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware, args.firmware, args.retry_ignored_firmwares
                         )
                     )
     except Exception as e:
