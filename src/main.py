@@ -438,7 +438,8 @@ async def fetch_and_bake(
     devices_semaphore: asyncio.Semaphore,
     git_mode: bool,
     firmware_offset: int,
-    oldest_checked_firmware: int | None = None
+    oldest_checked_firmware: int | None = None, 
+    only_firmware: str | None = None
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
@@ -459,6 +460,8 @@ async def fetch_and_bake(
                         return
 
                     parsed_data = Response.from_dict_with_offset_and_firmware_limit(await response.json(), firmware_offset, oldest_checked_firmware)
+
+                    parsed_data.firmwares = list(filter(lambda f: f.version != only_firmware, parsed_data.firmwares))
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -538,18 +541,42 @@ async def main() -> None:
         default=0,
     )
 
+
+    parser.add_argument(
+        "--product",
+        help="Set the to be processed product (e.g iPhone9,1; to only process iPhone9,1 and nothing else) (default is all)",
+        type=str,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--firmware",
+        help="Set the to be processed firmware (e.g 18.0; to only process 18.0 and nothing else) (default is all)",
+        type=str,
+        default=None,
+    )
+
+
     args = parser.parse_args()
 
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
 
+    args_product: str | None = args.product
+
     if args.proxy is not None:
         global PROXY
         PROXY = args.proxy
 
-    if args.product_offset > 0:
+    if args.product_offset > 0 and args.product is None:
         for product in PRODUCT_CODES:
             PRODUCT_CODES[product] = PRODUCT_CODES[product][:-args.product_offset]
+
+    if args_product is not None:
+        if args_product.startswith("iPhone"):
+            PRODUCT_CODES["iPhone"] = [args_product.removeprefix("iPhone")]
+        elif args_product.startswith("iPad"):
+            PRODUCT_CODES["iPad"] = [args_product.removeprefix("iPad")]
 
     if args.git:
         stdout, stderr, return_code = await run_command("git switch files")
@@ -565,7 +592,7 @@ async def main() -> None:
                 for code in codes:
                     tg.create_task(
                         fetch_and_bake(
-                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware
+                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware, args.firmware
                         )
                     )
     except Exception as e:
