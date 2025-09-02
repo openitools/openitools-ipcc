@@ -25,7 +25,8 @@ async def get_response(
     ignored_firmwares_file: Path,
     git_mode: bool,
     file_path: Path,
-    remote_file_size: int
+    remote_file_size: int,
+    is_retrying: bool = False
 ) -> Result[aiohttp.ClientResponse, str]:
     file_size = file_path.stat().st_size if file_path.exists() else 0
     headers = {}
@@ -49,7 +50,7 @@ async def get_response(
     except aiohttp.ClientResponseError as e:
         # Service Unavailable, probably on old ios
         if e.status == 503:
-            await ignore_firmware(ignored_firmwares_file, firmware)
+            await ignore_firmware(ignored_firmwares_file, firmware, is_retrying)
 
             shutil.rmtree(
                 Path(firmware.identifier) / firmware.version, ignore_errors=True
@@ -75,7 +76,8 @@ async def download_file(
     version_folder: Path,
     session: aiohttp.ClientSession,
     ignored_firmwares_file: Path,
-    git_mode: bool
+    git_mode: bool, 
+    is_retrying: bool = False
 ) -> Result[Path, str]:
     """
     Downloads the firmware and returns the path to the downloaded .ipsw file
@@ -91,12 +93,12 @@ async def download_file(
     # retry resuming the download if error ocurred
     for attempt in range(1, MAX_RETRIES + 1):
 
-        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, remote_file_size)
+        response = await get_response(firmware, session, ignored_firmwares_file, git_mode, file_path, remote_file_size, is_retrying)
 
         if isinstance(response, Error):
             # access denied
             if remote_file_size == 0 or "403" in response.error:
-                await ignore_firmware(ignored_firmwares_file, firmware)
+                await ignore_firmware(ignored_firmwares_file, firmware, is_retrying)
                 return Error("apple ipsw servers replied with access denied")
 
             if "416" in response.error:

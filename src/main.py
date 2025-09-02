@@ -144,6 +144,7 @@ async def extract_the_biggest_dmg(
     ignored_firmwares_file: Path,
     *,
     skip_extraction: bool = False,
+    is_retrying: bool = False
 ) -> Result[bool, str]:
     """
     Extract the biggest DMG from IPSW file.
@@ -168,7 +169,7 @@ async def extract_the_biggest_dmg(
                 if isinstance(biggest_dmg, Error):
                     logger.warning(biggest_dmg.error)
 
-                    await ignore_firmware(ignored_firmwares_file, firmware)
+                    await ignore_firmware(ignored_firmwares_file, firmware, is_retrying)
                     return biggest_dmg
 
                 biggest_dmg = biggest_dmg.value
@@ -377,7 +378,7 @@ async def bake_ipcc(
 
         # Download IPSW file
         ipsw_result = await download_file(
-                firmware, version_path, session, ignored_firmwares_metadata_path, git_mode
+                firmware, version_path, session, ignored_firmwares_metadata_path, git_mode, retry_ignored_firmwares
         )
         if isinstance(ipsw_result, Error):
             raise RuntimeError(ipsw_result)
@@ -388,6 +389,7 @@ async def bake_ipcc(
             version_path,
             firmware,
             ignored_firmwares_metadata_path,
+            is_retrying=retry_ignored_firmwares
         )
         if isinstance(extract_result, Error):
             raise RuntimeError(extract_result)

@@ -52,14 +52,17 @@ async def process_files_with_git(
         await run_command("git push origin files")
         # await run_command("git switch main")
 
-async def ignore_firmware(ignored_firmwares_file: Path, firmware: Firmware):
+async def ignore_firmware(ignored_firmwares_file: Path, firmware: Firmware, was_it_retrying: bool):
     await put_metadata(
             ignored_firmwares_file,
             "ignored",
             lambda ign: (ign or []) + [firmware.version],
     )
 
-    await process_files_with_git(firmware, message="Ignored {version} for {ident}", sparse_checkout_path=f"{ignored_firmwares_file}")
+    # so if it's retrying, no need to ignore the firmware
+    # FIXME: janky, no good
+    if not was_it_retrying:
+        await process_files_with_git(firmware, message="Ignored {version} for {ident}", sparse_checkout_path=f"{ignored_firmwares_file}")
 
 async def check_file_existence_in_branch(branch: str, file_path: str) -> bool:
     try:
