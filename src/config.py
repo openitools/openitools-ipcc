@@ -155,9 +155,6 @@ class _Config:
 
         args = parser.parse_args()
 
-        if args.proxy_target and not args.http_proxy:
-            parser.error("--http-proxy must be provided if --proxy-target is specified")
-
         return cls(
             args.upload_github,
             args.http_proxy,
