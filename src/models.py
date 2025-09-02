@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Generic, List, TypedDict, TypeVar, Union
 
+from config import cfg
+
 T = TypeVar("T")
 E = TypeVar("E")
 
@@ -39,6 +41,9 @@ class Firmware:
     uploaddate: datetime | None
     signed: bool
 
+    # a state of whether this firmware was ignored in the repo metadata
+    was_ignored: bool = False
+
     @classmethod
     def from_dict(cls, data: dict) -> "Firmware":
         return cls(
@@ -69,7 +74,7 @@ class Response:
     cpid: int
     bdid: int
 
-    def set_firmwares_offset(self, offset: int) -> None:
+    def set_firmwares_skip(self, offset: int) -> None:
         """
         reduces the firmwares by choping off the `offset` amount from the firmwares list starting at the oldest
 
@@ -77,38 +82,21 @@ class Response:
         """
 
         # firmwares are sorted from the API
-        # 
+        #
         # old firmwares are at the end of the list
         if offset > 0:
             self.firmwares = self.firmwares[:-offset]
 
-    def set_oldest_firmware(self, oldest: int | None) -> None:
+    def set_min_firmware(self, oldest: int | None) -> None:
         if oldest is None:
             return
         self.firmwares = [
-            f for f in self.firmwares
-            if int(f.version.split(".")[0]) >= oldest
+            f for f in self.firmwares if int(f.version.split(".")[0]) >= oldest
         ]
-        
-    @classmethod
-    def from_dict_with_offset_and_firmware_limit(cls, data: dict, offset: int, oldest: int | None) -> "Response":
-        response = cls.from_dict_with_offset(data, offset)
-        response.set_oldest_firmware(oldest)
-
-        return response
-
-
-
-    @classmethod
-    def from_dict_with_offset(cls, data: dict, offset: int) -> "Response":
-        response = cls.from_dict(data)
-        response.set_firmwares_offset(offset)
-
-        return response
 
     @classmethod
     def from_dict(cls, data: dict) -> "Response":
-        return cls(
+        response = cls(
             name=data["name"],
             identifier=data["identifier"],
             firmwares=[Firmware.from_dict(fw) for fw in data["firmwares"]],
@@ -117,3 +105,13 @@ class Response:
             cpid=data["cpid"],
             bdid=data["bdid"],
         )
+
+        response.set_firmwares_skip(cfg.firmware_skip)
+        response.set_min_firmware(cfg.min_firmware)
+
+        if cfg.product is not None:
+            response.firmwares = [
+                f for f in response.firmwares if f.version == cfg.product
+            ]
+
+        return response

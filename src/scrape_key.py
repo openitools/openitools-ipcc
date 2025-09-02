@@ -8,6 +8,7 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 from bs4 import BeautifulSoup
 
+from config import cfg
 from models import Error, Ok, Result
 from utils import vfdecrypt
 
@@ -28,6 +29,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
 ]
+
 
 def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
     if isinstance(plist_data, dict):
@@ -51,10 +53,9 @@ def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
 
 
 async def _fetch_key(
-        build_train: str, build_id: str, identifier: str, proxy: str | None = None
+    build_train: str, build_id: str, identifier: str
 ) -> Result[str, str]:
-
-    connector = ProxyConnector.from_url(proxy) if proxy else None
+    connector = ProxyConnector.from_url(cfg.http_proxy) if cfg.http_proxy else None
 
     async with aiohttp.ClientSession(connector=connector) as session:
         html = await _fetch_html(
@@ -74,7 +75,10 @@ async def _fetch_key(
 
 
 async def decrypt_dmg(
-        ipsw_file: Path, dmg_file: Path, build_id: str, identifier: str, proxy: str | None = None
+    ipsw_file: Path,
+    dmg_file: Path,
+    build_id: str,
+    identifier: str,
 ) -> Result[None, str]:
     with zipfile.ZipFile(ipsw_file) as zip_file:
         with zip_file.open("BuildManifest.plist") as bmplist:
@@ -84,7 +88,7 @@ async def decrypt_dmg(
             if isinstance(build_train, Error):
                 return Error("BuildTrain was not found in the BuildManifest.plist file")
 
-    key = await _fetch_key(build_train.value, build_id, identifier, proxy)
+    key = await _fetch_key(build_train.value, build_id, identifier)
 
     if isinstance(key, Error):
         return key
@@ -118,7 +122,6 @@ async def _extract_encrypted_dmg(dmg_file: Path, key: str) -> Result[None, str]:
 
 
 async def _fetch_html(session, url) -> Result[str, str]:
-
     # random User-Agent
     headers = HEADERS | {"User-Agent": random.choice(USER_AGENTS)}
 

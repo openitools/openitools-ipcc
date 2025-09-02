@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import glob
 import logging
@@ -16,12 +15,19 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 from tqdm.asyncio import tqdm
 
+from config import cfg
 from models import BundleMetadata, Error, Firmware, Ok, Response, Result
+from products import init_models, models
 from scrape_key import decrypt_dmg
 from utils.download import download_file
-from utils.fs import (bundles_glob, delete_non_bundles,
-                      is_firmware_version_done, is_firmware_version_ignored,
-                      put_metadata, system_has_parent)
+from utils.fs import (
+    bundles_glob,
+    delete_non_bundles,
+    is_firmware_version_done,
+    is_firmware_version_ignored,
+    put_metadata,
+    system_has_parent,
+)
 from utils.git import ignore_firmware, process_files_with_git
 from utils.hash import calculate_hash
 from utils.helpers import install_ipsw
@@ -33,35 +39,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-PROXY: str | None = None
-
-PRODUCT_CODES: Dict[str, List[str]] = {
-    "iPhone": [
-        "14,6", "14,5", "14,4", "14,3", "14,2", 
-        "13,4", "13,3", "13,2", "13,1", "12,8", 
-        "12,5", "12,3", "12,1", "11,8", "11,6", 
-        "11,4", "11,2", "10,6", "10,5", "10,4", 
-        "10,3", "10,2", "10,1", "9,4", "9,3", "9,2", 
-        "9,1", "8,4", "8,2", "8,1", "7,2", 
-        "7,1", "6,2", "6,1", "5,4", "5,3", 
-        "5,2", "5,1", "4,1", "3,3", "3,2", 
-        "3,1", "2,1"
-    ],
-    "iPad": [
-        "16,6", "16,4", "16,2", "15,8", "15,6", 
-        "15,5", "15,4", "15,3", "14,11", "14,9", 
-        "14,6", "14,4", "14,2", "13,19", "13,17", 
-        "13,11", "13,10", "13,7", "13,5", "13,2", 
-        "12,2", "11,7", "11,4", "11,2", "8,12", 
-        "8,10", "8,8", "8,7", "8,4", "8,3", 
-        "7,12", "7,6", "7,4", "7,2", "6,12", 
-        "6,8", "6,4", "5,4", "5,2", "4,9", 
-        "4,8", "4,6", "4,5", "4,3", "4,2", 
-        "3,6", "3,5", "3,3", "3,2", "2,7", 
-        "2,6", "2,3", "2,2", "1,1"
-    ]
-}
 
 
 async def decrypt_dmg_aea(
@@ -124,18 +101,24 @@ async def handle_aea_dmg(
 
     return Ok(biggest_dmg_file_path.parent / biggest_dmg_file_path.stem)
 
-async def get_biggest_dmg_file_in_zip(zip_file: zipfile.ZipFile) -> Result[zipfile.ZipInfo, str]:
+
+async def get_biggest_dmg_file_in_zip(
+    zip_file: zipfile.ZipFile,
+) -> Result[zipfile.ZipInfo, str]:
     biggest_dmg = max(
-            [file 
-             for file in zip_file.infolist() 
-             if file.filename.endswith((".dmg", ".dmg.aea"))
-             ], 
-            key=lambda file: file.file_size)
+        [
+            file
+            for file in zip_file.infolist()
+            if file.filename.endswith((".dmg", ".dmg.aea"))
+        ],
+        key=lambda file: file.file_size,
+    )
 
     if not biggest_dmg:
         return Error("No .dmg or .dmg.aea files found in the IPSW")
 
     return Ok(biggest_dmg)
+
 
 async def extract_the_biggest_dmg(
     dmg_file: Path,
@@ -144,7 +127,6 @@ async def extract_the_biggest_dmg(
     ignored_firmwares_file: Path,
     *,
     skip_extraction: bool = False,
-    is_retrying: bool = False
 ) -> Result[bool, str]:
     """
     Extract the biggest DMG from IPSW file.
@@ -169,7 +151,7 @@ async def extract_the_biggest_dmg(
                 if isinstance(biggest_dmg, Error):
                     logger.warning(biggest_dmg.error)
 
-                    await ignore_firmware(ignored_firmwares_file, firmware, is_retrying)
+                    await ignore_firmware(ignored_firmwares_file, firmware)
                     return biggest_dmg
 
                 biggest_dmg = biggest_dmg.value
@@ -187,17 +169,19 @@ async def extract_the_biggest_dmg(
                     logger.info(f"Extracting {biggest_dmg.filename} to {output}")
 
                     progress = tqdm(
-                            total=biggest_dmg.file_size,
-                            unit="B",
-                            unit_scale=True,
-                            desc=f"Extracting {biggest_dmg.filename}",
-                        ) 
+                        total=biggest_dmg.file_size,
+                        unit="B",
+                        unit_scale=True,
+                        desc=f"Extracting {biggest_dmg.filename}",
+                    )
 
                     source = zip_file.open(biggest_dmg)
 
                     async with aiofiles.open(biggest_dmg_file_path, "wb") as target:
                         while True:
-                            chunk = await asyncio.to_thread(source.read, 16 * 1024 * 1024)
+                            chunk = await asyncio.to_thread(
+                                source.read, 16 * 1024 * 1024
+                            )
                             if not chunk:
                                 break
 
@@ -259,7 +243,6 @@ async def extract_the_biggest_dmg(
                     biggest_dmg_file_path,
                     firmware.buildid,
                     firmware.identifier,
-                    PROXY
                 )
                 if isinstance(decrypt_result, Error):
                     return Error(f"Unable to extract the DMG: {decrypt_result}")
@@ -335,8 +318,6 @@ async def tar_and_hash_bundles(
 async def bake_ipcc(
     firmware: Firmware,
     session: aiohttp.ClientSession,
-    git_mode: bool,
-    retry_ignored_firmwares: bool
 ) -> bool:
     """Process firmware to extract IPCC files."""
     base_path = Path(firmware.identifier)
@@ -365,7 +346,7 @@ async def bake_ipcc(
         if await is_firmware_version_ignored(
             ignored_firmwares_metadata_path, firmware.version
         ):
-            if not retry_ignored_firmwares:
+            if not cfg.retry_ignored:
                 shutil.rmtree(version_path, ignore_errors=True)
                 return False
 
@@ -373,8 +354,12 @@ async def bake_ipcc(
             await put_metadata(
                 ignored_firmwares_metadata_path,
                 "ignored",
-                lambda firmwares: [f for f in (firmwares or []) if f != firmware.version]
+                lambda firmwares: [
+                    f for f in (firmwares or []) if f != firmware.version
+                ],
             )
+
+            firmware.was_ignored = True
 
         # Check if version already processed
         if await is_firmware_version_done(base_metadata_path, firmware.version):
@@ -382,7 +367,10 @@ async def bake_ipcc(
 
         # Download IPSW file
         ipsw_result = await download_file(
-                firmware, version_path, session, ignored_firmwares_metadata_path, git_mode, retry_ignored_firmwares
+            firmware,
+            version_path,
+            session,
+            ignored_firmwares_metadata_path,
         )
         if isinstance(ipsw_result, Error):
             raise RuntimeError(ipsw_result)
@@ -393,7 +381,6 @@ async def bake_ipcc(
             version_path,
             firmware,
             ignored_firmwares_metadata_path,
-            is_retrying=retry_ignored_firmwares
         )
         if isinstance(extract_result, Error):
             raise RuntimeError(extract_result)
@@ -444,23 +431,17 @@ async def bake_ipcc(
 
 
 async def fetch_and_bake(
-    code: str,
-    product: str,
+    model: str,
     devices_semaphore: asyncio.Semaphore,
-    git_mode: bool,
-    firmware_offset: int,
-    oldest_checked_firmware: int | None = None, 
-    only_firmware: str | None = None,
-    retry_ignored_firmwares: bool = False
 ) -> None:
     """Fetch and process firmware for a specific device."""
     async with devices_semaphore:
         try:
-            model = f"{product}{code}"
             logger.info(f"Processing device {model}")
 
-
-            connector = ProxyConnector.from_url(PROXY) if PROXY else None
+            connector = (
+                ProxyConnector.from_url(cfg.http_proxy) if cfg.http_proxy else None
+            )
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(
                     f"https://api.ipsw.me/v4/device/{model}", params={"type": "ipsw"}
@@ -471,10 +452,8 @@ async def fetch_and_bake(
                         )
                         return
 
-                    parsed_data = Response.from_dict_with_offset_and_firmware_limit(await response.json(), firmware_offset, oldest_checked_firmware)
+                    parsed_data = Response.from_dict(await response.json())
 
-                    if only_firmware is not None:
-                        parsed_data.firmwares = [f for f in parsed_data.firmwares if f.version == only_firmware]
                     if not parsed_data.firmwares:
                         logger.warning(f"No firmwares found for {model}")
                         return
@@ -483,11 +462,10 @@ async def fetch_and_bake(
                     # assuming there's at least one firmware
                     current_ident = parsed_data.firmwares[0].identifier
 
-
                     for firmware in parsed_data.firmwares:
-                        if await bake_ipcc(firmware, session, git_mode, retry_ignored_firmwares):
+                        if await bake_ipcc(firmware, session):
                             processed_count += 1
-                            if git_mode:
+                            if cfg.upload_github:
                                 git_result = await process_files_with_git(firmware)
                                 if isinstance(git_result, Error):
                                     logger.error(
@@ -499,126 +477,35 @@ async def fetch_and_bake(
 
         except Exception as e:
             logger.error(
-                f"Error processing device {product}{code}: {str(e)}\n{traceback.format_exc()}"
+                f"Error processing device {model}: {str(e)}\n{traceback.format_exc()}"
             )
 
 
 async def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser("OpeniTools-IPCC")
-    parser.add_argument(
-        "-g",
-        "--git",
-        help="Upload the files to Github (setup your git before)",
-        action="store_true",
-        default=False,
-    )
-
-
-    parser.add_argument(
-        "--proxy",
-        help="Set a proxy for every http request",
-        type=str,
-        default=None,
-    )
-
-
-    parser.add_argument(
-        "-j",
-        "--concurrent-jobs",
-        help="Number of concurrent firmware extraction jobs (default: 3)",
-        type=int,
-        default=3,
-    )
-
-    parser.add_argument(
-        "--firmware-offset",
-        help="Set a firmware offset for each product (e.g 10; to skip the oldset 10 firmwares for every product)",
-        type=int,
-        default=0,
-    )
-
-
-    parser.add_argument(
-        "--oldest-checked-firmware",
-        help="Set the oldest firmware to be checked (e.g 12; to only check from ios 12 and upword)",
-        type=int,
-        default=None,
-    )
-
-
-    parser.add_argument(
-        "--product-offset",
-        help="Set a product offset for both iPhones and iPads (e.g 10; to skip the oldset 10 devices)",
-        type=int,
-        default=0,
-    )
-
-
-    parser.add_argument(
-        "--product",
-        help="Set the to be processed product (e.g iPhone9,1; to only process iPhone9,1 and nothing else) (default is all)",
-        type=str,
-        default=None,
-    )
-
-    parser.add_argument(
-        "--firmware",
-        help="Set the to be processed firmware (e.g 18.0; to only process 18.0 and nothing else) (default is all)",
-        type=str,
-        default=None,
-    )
-
-
-    parser.add_argument(
-        "--retry-ignored-firmwares",
-        help="Tries to proccess ignored firmwares again",
-        action="store_true",
-        default=False,
-    )
-
-
-    args = parser.parse_args()
 
     # Change to parent directory
     os.chdir(Path(__file__).resolve().parents[1])
 
-    args_product: str | None = args.product
+    init_models()
 
-    if args.proxy is not None:
-        global PROXY
-        PROXY = args.proxy
-
-    if args.product_offset > 0 and args.product is None:
-        for product in PRODUCT_CODES:
-            PRODUCT_CODES[product] = PRODUCT_CODES[product][:-args.product_offset]
-
-    if args_product is not None:
-        if args_product.startswith("iPhone"):
-            PRODUCT_CODES["iPhone"] = [args_product.removeprefix("iPhone")]
-            del PRODUCT_CODES["iPad"]
-
-        elif args_product.startswith("iPad"):
-            PRODUCT_CODES["iPad"] = [args_product.removeprefix("iPad")]
-            del PRODUCT_CODES["iPhone"]
-
-    if args.git:
+    if cfg.upload_github:
         stdout, stderr, return_code = await run_command("git switch files")
         if return_code != 0:
             logger.error(f"Failed to switch git branch: {stdout} | {stderr}")
             return
 
-    devices_semaphore = asyncio.Semaphore(args.concurrent_jobs)
+    devices_semaphore = asyncio.Semaphore(cfg.jobs)
 
     try:
         async with asyncio.TaskGroup() as tg:
-            for product, codes in PRODUCT_CODES.items():
-                for code in codes:
-                    tg.create_task(
-                        fetch_and_bake(
-                            code, product, devices_semaphore, args.git, args.firmware_offset, args.oldest_checked_firmware, args.firmware, args.retry_ignored_firmwares
-                        )
+            for model in models:
+                tg.create_task(
+                    fetch_and_bake(
+                        model,
+                        devices_semaphore,
                     )
+                )
     except Exception as e:
         logger.error(f"Error in main task group: {str(e)}")
 
