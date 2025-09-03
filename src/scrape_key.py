@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from config import cfg
 from models import Error, Ok, Result
-from utils import vfdecrypt
+from utils import logger, vfdecrypt
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -55,6 +55,25 @@ def _find_key_in_plist(plist_data, target_key: str) -> Result[str, None]:
 async def _fetch_key(
     build_train: str, build_id: str, identifier: str
 ) -> Result[str, str]:
+    if cfg.old_keys_api is not None:
+        request_json = {
+            "build_train": build_train,
+            "build_id": build_id,
+            "identifier": identifier,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(cfg.old_keys_api, json=request_json) as response:
+                    response.raise_for_status()
+
+                    return Ok(await response.text())
+        except Exception as e:
+            logger.error(
+                f"was not able to get the key from the custom api ({cfg.old_keys_api})"
+            )
+            return Error(str(e))
+
     connector = (
         ProxyConnector.from_url(cfg.http_proxy)
         if cfg.http_proxy and cfg.proxy_target.is_scraping_or_all()

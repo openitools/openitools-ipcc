@@ -43,6 +43,8 @@ class _Config:
     http_proxy: str | None
     proxy_target: _ProxyTarget
 
+    old_keys_api: str | None
+
     jobs: int
 
     firmware_skip: int
@@ -70,6 +72,13 @@ class _Config:
         parser.add_argument(
             "--http-proxy",
             help="Proxy URL for all HTTP requests.",
+            type=str,
+            default=None,
+        )
+
+        parser.add_argument(
+            "--old-keys-api",
+            help='Set a custom API to get the old dmg decryption keys from, it should receive: {"build_train": "..", "build_id": "..", "identifer": ".."} and return a string of the rootfs decryption key',
             type=str,
             default=None,
         )
@@ -159,6 +168,7 @@ class _Config:
             args.upload_github,
             args.http_proxy,
             _ProxyTarget.from_str(args.proxy_target),
+            args.old_keys_api,
             args.jobs,
             args.firmware_skip,
             args.product_skip,
