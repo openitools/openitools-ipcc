@@ -64,7 +64,9 @@ async def _fetch_key(
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(cfg.old_keys_api, json=request_json) as response:
+                async with session.post(
+                    cfg.old_keys_api, json=request_json
+                ) as response:
                     response.raise_for_status()
 
                     return Ok(await response.text())
