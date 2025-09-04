@@ -124,7 +124,11 @@ async def decrypt_dmg(
 async def _extract_encrypted_dmg(dmg_file: Path, key: str) -> Result[None, str]:
     temp_file = dmg_file.parent / (dmg_file.name + ".temp")
 
-    vfdecrypt.decrypt_vf(dmg_file, temp_file, key)
+    try:
+        vfdecrypt.decrypt_vf(dmg_file, temp_file, key)
+    except Exception as e:
+        return Error(f"decryption failed: {e}")
+
     # _, stderr, returncode = await run_command(
     #     f"vfdecrypt -i {dmg_file} -k {key} -o {temp_file}", check=False
     # )
