@@ -6,10 +6,11 @@ cd openitools-ipcc
 
 git config core.sparseCheckoutCone false
 
-git sparse-checkout disable
+git sparse-checkout init --no-cone
 
-git sparse-checkout set '/*'
-
-git sparse-checkout add '!/*/*/*.tar'
+cat > .git/info/sparse-checkout <<EOF
+/*
+!**/*.tar
+EOF
 
 git read-tree -mu HEAD
