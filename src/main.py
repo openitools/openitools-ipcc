@@ -247,6 +247,7 @@ async def extract_the_biggest_dmg(
                 if isinstance(decrypt_result, Error):
                     if decrypt_result.error.startswith("decryption failed"):
                         logger.warning("was not able to decrypt the dmg, ignoring")
+                        # FIXME: something is wrong with pushing the ignored firmware while other files exists
                         await ignore_firmware(ignored_firmwares_file, firmware)
 
                     return Error(f"Unable to extract the DMG: {decrypt_result}")
