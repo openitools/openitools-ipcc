@@ -3,6 +3,7 @@ import glob
 import logging
 import os
 import shutil
+import sys
 import tarfile
 import traceback
 import zipfile
@@ -499,6 +500,7 @@ async def fetch_and_bake(
             logger.error(
                 f"Error processing device {model}: {str(e)}\n{traceback.format_exc()}"
             )
+            sys.exit(1)
 
 
 async def main() -> None:
@@ -526,6 +528,7 @@ async def main() -> None:
                 )
     except Exception as e:
         logger.error(f"Error in main task group: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
