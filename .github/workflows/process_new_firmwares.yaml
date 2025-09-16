@@ -1,7 +1,7 @@
 name: Process New Firmwares
 
 on:
-  workflow_dispatch: # 
+  workflow_dispatch: #
 
 jobs:
   work:
@@ -13,7 +13,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global credential.helper store
           echo "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com" > ~/.git-credentials
-          
+
       - name: Bare Clone
         run: |
           curl -L "https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/main/bare-clone.sh" | bash
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Cache pip
         uses: actions/cache@v4
@@ -36,4 +36,4 @@ jobs:
           cd openitools-ipcc
           pip install --upgrade pip
           pip install -r requirements.txt 
-          python src/main.py -g --min-firmware 10
+          python src/main.py -g --min-firmware 10 --jobs 1
