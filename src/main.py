@@ -42,37 +42,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def decrypt_dmg_aea(
+async def extract_aea_keys(
     ipsw_file: Path, dmg_file: Path, output: Path
+) -> Result[Path, str]:
+    # Extract with ipsw
+    stdout, stderr, return_code = await run_command(
+        f"ipsw extract --fcs-key {ipsw_file} --output {output}"
+    )
+    if return_code != 0:
+        return Error(f"Extraction failed: {stdout} | {stderr}")
+
+    # Find PEM files
+    pem_files = [Path(p) for p in glob.glob(f"{output}/**/*.pem", recursive=True)]
+    if not pem_files:
+        return Error("No PEM file found.")
+
+    # Find matching PEM or use first one
+    pem_file = (
+        next((p for p in pem_files if p.stem == dmg_file.name), None) or pem_files[0]
+    )
+    logger.info(f"Using PEM file: {pem_file}")
+
+    return Ok(pem_file)
+
+
+async def install_ipsw_if_not_found():
+    # Check if ipsw is installed
+    if shutil.which("ipsw") is None:
+        logger.warning("ipsw is not installed")
+        await install_ipsw()
+
+
+async def decrypt_dmg_aea(
+    dmg_file: Path, output: Path, pem_file: Path
 ) -> Result[None, str]:
     """Decrypt DMG.AEA file using ipsw tool."""
     logger.info(f"Decrypting {dmg_file}")
 
     try:
-        # Check if ipsw is installed
-        if shutil.which("ipsw") is None:
-            logger.warning("ipsw is not installed")
-            await install_ipsw()
-
-        # Extract with ipsw
-        stdout, stderr, return_code = await run_command(
-            f"ipsw extract --fcs-key {ipsw_file} --output {output}"
-        )
-        if return_code != 0:
-            return Error(f"Extraction failed: {stdout} | {stderr}")
-
-        # Find PEM files
-        pem_files = [Path(p) for p in glob.glob(f"{output}/**/*.pem", recursive=True)]
-        if not pem_files:
-            return Error("No PEM file found.")
-
-        # Find matching PEM or use first one
-        pem_file = (
-            next((p for p in pem_files if p.stem == dmg_file.name), None)
-            or pem_files[0]
-        )
-        logger.info(f"Using PEM file: {pem_file}")
-
         # Decrypt
         stdout, stderr, return_code = await run_command(
             f"ipsw fw aea --pem {pem_file} {dmg_file} --output {output}"
@@ -128,6 +135,76 @@ async def extract_the_biggest_dmg(
     ignored_firmwares_file: Path,
     *,
     skip_extraction: bool = False,
+) -> Result[Path, str]:
+    # Verify ZIP file first
+    if not zipfile.is_zipfile(ipsw_file):
+        return Error(f"File {ipsw_file} is not a valid ZIP file")
+
+    biggest_dmg_file_path: Optional[Path] = None
+
+    try:
+        with zipfile.ZipFile(ipsw_file) as zip_file:
+            # Find biggest DMG file
+
+            biggest_dmg = await get_biggest_dmg_file_in_zip(zip_file)
+
+            if isinstance(biggest_dmg, Error):
+                logger.warning(biggest_dmg.error)
+
+                await ignore_firmware(ignored_firmwares_file, firmware)
+                return biggest_dmg
+
+            biggest_dmg = biggest_dmg.value
+            biggest_dmg_file_path = output / biggest_dmg.filename
+
+            logger.debug(
+                f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
+            )
+
+            # Extract if needed
+            if (
+                not biggest_dmg_file_path.exists()
+                or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
+            ) and not skip_extraction:
+                logger.info(f"Extracting {biggest_dmg.filename} to {output}")
+
+                progress = tqdm(
+                    total=biggest_dmg.file_size,
+                    unit="B",
+                    unit_scale=True,
+                    desc=f"Extracting {biggest_dmg.filename}",
+                )
+
+                source = zip_file.open(biggest_dmg)
+
+                async with aiofiles.open(biggest_dmg_file_path, "wb") as target:
+                    while True:
+                        chunk = await asyncio.to_thread(source.read, 16 * 1024 * 1024)
+                        if not chunk:
+                            break
+
+                        await target.write(chunk)
+                        progress.update(len(chunk))
+
+                progress.close()
+                source.close()
+
+            else:
+                logger.info("Skipping DMG extraction (file already exists)")
+
+    except Exception as zip_error:
+        return Error(f"ZIP extraction error: {str(zip_error)}")
+
+    return Ok(biggest_dmg_file_path)
+
+
+async def process_the_biggest_dmg(
+    ipsw_file: Path,
+    output: Path,
+    firmware: Firmware,
+    ignored_firmwares_file: Path,
+    *,
+    skip_extraction: bool = False,
 ) -> Result[bool, str]:
     """
     Extract the biggest DMG from IPSW file.
@@ -136,86 +213,50 @@ async def extract_the_biggest_dmg(
     """
     logger.info(f"Extracting the biggest DMG from {ipsw_file}")
 
-    biggest_dmg_file_path: Optional[Path] = None
+    extraction_result = await extract_the_biggest_dmg(
+        ipsw_file,
+        output,
+        firmware,
+        ignored_firmwares_file,
+        skip_extraction=skip_extraction,
+    )
+
+    if isinstance(extraction_result, Error):
+        return Error(f"unable to extract the biggest dmg file from {ipsw_file}")
+
+    biggest_dmg_file_path = extraction_result.value
 
     try:
-        # Verify ZIP file first
-        if not zipfile.is_zipfile(ipsw_file):
-            return Error(f"File {ipsw_file} is not a valid ZIP file")
+        # Handle AEA decryption if needed
+        if biggest_dmg_file_path and ".aea" in biggest_dmg_file_path.suffixes:
+            logger.info("Detected 'aea' in file suffix, starting decryption")
 
-        try:
-            with zipfile.ZipFile(ipsw_file) as zip_file:
-                # Find biggest DMG file
+            installation_result = await install_ipsw_if_not_found()
 
-                biggest_dmg = await get_biggest_dmg_file_in_zip(zip_file)
+            if isinstance(installation_result, Error):
+                return installation_result
 
-                if isinstance(biggest_dmg, Error):
-                    logger.warning(biggest_dmg.error)
+            pem_files = await extract_aea_keys(ipsw_file, biggest_dmg_file_path, output)
 
-                    await ignore_firmware(ignored_firmwares_file, firmware)
-                    return biggest_dmg
+            if isinstance(pem_files, Error):
+                return pem_files
 
-                biggest_dmg = biggest_dmg.value
-                biggest_dmg_file_path = output / biggest_dmg.filename
-
-                logger.debug(
-                    f"Biggest DMG found: {biggest_dmg.filename} ({biggest_dmg.file_size} bytes)"
-                )
-
-                # Extract if needed
-                if (
-                    not biggest_dmg_file_path.exists()
-                    or biggest_dmg_file_path.stat().st_size != biggest_dmg.file_size
-                ) and not skip_extraction:
-                    logger.info(f"Extracting {biggest_dmg.filename} to {output}")
-
-                    progress = tqdm(
-                        total=biggest_dmg.file_size,
-                        unit="B",
-                        unit_scale=True,
-                        desc=f"Extracting {biggest_dmg.filename}",
-                    )
-
-                    source = zip_file.open(biggest_dmg)
-
-                    async with aiofiles.open(biggest_dmg_file_path, "wb") as target:
-                        while True:
-                            chunk = await asyncio.to_thread(
-                                source.read, 16 * 1024 * 1024
-                            )
-                            if not chunk:
-                                break
-
-                            await target.write(chunk)
-                            progress.update(len(chunk))
-
-                    progress.close()
-                    source.close()
-
-                else:
-                    logger.info("Skipping DMG extraction (file already exists)")
-
-        except Exception as zip_error:
-            return Error(f"ZIP extraction error: {str(zip_error)}")
-
-        finally:
             try:
                 ipsw_file.unlink(missing_ok=True)
                 logger.info("Deleted IPSW file")
             except Exception as e:
                 logger.warning(f"Failed to delete IPSW file: {e}")
 
-        # Handle AEA decryption if needed
-        if biggest_dmg_file_path and ".aea" in biggest_dmg_file_path.suffixes:
-            logger.info("Detected 'aea' in file suffix, starting decryption")
-            handle_result = await handle_aea_dmg(
-                ipsw_file, biggest_dmg_file_path, output
+            decryption_result = await decrypt_dmg_aea(
+                biggest_dmg_file_path, output, pem_files.value
             )
+            if isinstance(decryption_result, Error):
+                return decryption_result
 
-            if isinstance(handle_result, Error):
-                return handle_result
-
-            biggest_dmg_file_path = handle_result.value
+            # the same file name without the .aea (ipsw tool handles it)
+            biggest_dmg_file_path = (
+                biggest_dmg_file_path.parent / biggest_dmg_file_path.stem
+            )
 
         # Extract bundles
         if not biggest_dmg_file_path or not biggest_dmg_file_path.exists():
@@ -260,7 +301,7 @@ async def extract_the_biggest_dmg(
 
                     return Error(f"Unable to extract the DMG: {decrypt_result}")
 
-                return await extract_the_biggest_dmg(
+                return await process_the_biggest_dmg(
                     ipsw_file,
                     output,
                     firmware,
@@ -402,7 +443,7 @@ async def bake_ipcc(
             raise RuntimeError(ipsw_result)
 
         # Extract DMG
-        extract_result = await extract_the_biggest_dmg(
+        extract_result = await process_the_biggest_dmg(
             ipsw_result.value,
             version_path,
             firmware,
