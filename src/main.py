@@ -9,7 +9,7 @@ import traceback
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import aiofiles
 import aiohttp
@@ -122,7 +122,7 @@ async def get_biggest_dmg_file_in_zip(
 
 
 async def extract_the_biggest_dmg(
-    dmg_file: Path,
+    ipsw_file: Path,
     output: Path,
     firmware: Firmware,
     ignored_firmwares_file: Path,
@@ -134,19 +134,19 @@ async def extract_the_biggest_dmg(
 
     It would also return whether the 'System' has a parent or not
     """
-    logger.info(f"Extracting the biggest DMG from {dmg_file}")
+    logger.info(f"Extracting the biggest DMG from {ipsw_file}")
 
     biggest_dmg_file_path: Optional[Path] = None
 
     try:
         # Verify ZIP file first
-        if not zipfile.is_zipfile(dmg_file):
-            return Error(f"File {dmg_file} is not a valid ZIP file")
+        if not zipfile.is_zipfile(ipsw_file):
+            return Error(f"File {ipsw_file} is not a valid ZIP file")
 
-        with zipfile.ZipFile(dmg_file) as zip_file:
-            # Find biggest DMG file
+        try:
+            with zipfile.ZipFile(ipsw_file) as zip_file:
+                # Find biggest DMG file
 
-            try:
                 biggest_dmg = await get_biggest_dmg_file_in_zip(zip_file)
 
                 if isinstance(biggest_dmg, Error):
@@ -195,14 +195,21 @@ async def extract_the_biggest_dmg(
                 else:
                     logger.info("Skipping DMG extraction (file already exists)")
 
-            except Exception as zip_error:
-                return Error(f"ZIP extraction error: {str(zip_error)}")
+        except Exception as zip_error:
+            return Error(f"ZIP extraction error: {str(zip_error)}")
+
+        finally:
+            try:
+                ipsw_file.unlink(missing_ok=True)
+                logger.info("Deleted IPSW file")
+            except Exception as e:
+                logger.warning(f"Failed to delete IPSW file: {e}")
 
         # Handle AEA decryption if needed
         if biggest_dmg_file_path and ".aea" in biggest_dmg_file_path.suffixes:
             logger.info("Detected 'aea' in file suffix, starting decryption")
             handle_result = await handle_aea_dmg(
-                dmg_file, biggest_dmg_file_path, output
+                ipsw_file, biggest_dmg_file_path, output
             )
 
             if isinstance(handle_result, Error):
@@ -240,7 +247,7 @@ async def extract_the_biggest_dmg(
         if returncode != 0:
             if "Cannot open the file as [Dmg] archive" in stderr:
                 decrypt_result = await decrypt_dmg(
-                    dmg_file,
+                    ipsw_file,
                     biggest_dmg_file_path,
                     firmware.buildid,
                     firmware.identifier,
@@ -254,7 +261,7 @@ async def extract_the_biggest_dmg(
                     return Error(f"Unable to extract the DMG: {decrypt_result}")
 
                 return await extract_the_biggest_dmg(
-                    dmg_file,
+                    ipsw_file,
                     output,
                     firmware,
                     ignored_firmwares_file,
@@ -274,9 +281,9 @@ async def extract_the_biggest_dmg(
             except Exception as e:
                 logger.warning(f"Failed to cleanup DMG file: {str(e)}")
 
-        if dmg_file.exists():
+        if ipsw_file.exists():
             try:
-                dmg_file.unlink(missing_ok=True)
+                ipsw_file.unlink(missing_ok=True)
             except Exception as e:
                 logger.warning(f"Failed to cleanup IPSW file: {str(e)}")
 

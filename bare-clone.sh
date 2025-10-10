@@ -8,7 +8,7 @@ git config core.sparseCheckoutCone false
 
 git sparse-checkout init --no-cone
 
-cat > .git/info/sparse-checkout <<EOF
+cat >.git/info/sparse-checkout <<EOF
 /*
 !**/*.tar
 EOF
