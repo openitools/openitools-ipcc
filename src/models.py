@@ -120,7 +120,12 @@ class Response:
 
         if cfg.product is not None:
             response.firmwares = [
-                f for f in response.firmwares if f.version == cfg.product
+                f for f in response.firmwares if f.identifier == cfg.product
+            ]
+
+        if cfg.firmware is not None:
+            response.firmwares = [
+                f for f in response.firmwares if f.version == cfg.firmware
             ]
 
         return response
